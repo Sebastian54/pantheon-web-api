@@ -7,17 +7,24 @@ import {
 } from "../../schemas/register.schema";
 
 /**
- * Provisions a server_uuid + api_key pair for a new Minecraft server.
- * OWNER-only: called from the dashboard, not by the Minecraft server itself —
- * the returned api_key is pasted into the plugin/mod config on the MC side.
+ * The handshake: a Minecraft server calls this directly (no prior auth) to
+ * provision its own server_uuid + api_key pair on first boot. Public by
+ * design — the plugin has no credentials yet, that's the point of this
+ * endpoint. A spammed registration only ever creates an unclaimed row (no
+ * access to anything), but it's still real ingestion work per request, so
+ * this route gets a tighter rate limit than the app-wide default — legitimate
+ * traffic is one call per server, ever, with maybe a retry or two.
  */
 const registerRoute: FastifyPluginAsyncZod = async (fastify) => {
   fastify.post(
     "/register",
     {
-      // preValidation (not preHandler) so auth is checked before body
-      // validation runs — an unauthenticated caller never sees schema details.
-      preValidation: fastify.requireOwner,
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: "10 minutes",
+        },
+      },
       schema: {
         body: registerServerBodySchema,
         response: {
@@ -26,31 +33,34 @@ const registerRoute: FastifyPluginAsyncZod = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { name, loaderType, mcVersion } = request.body;
+      const { loader_type, mc_version } = request.body;
 
       const serverUuid = generateServerUuid();
+      const name = request.body.name ?? `Server-${serverUuid.slice(0, 8)}`;
       const apiKey = generateApiKey();
       const apiKeyHash = hashApiKey(apiKey);
 
       const [server] = await fastify.db
         .insert(servers)
-        .values({ serverUuid, name, apiKeyHash, loaderType, mcVersion })
+        .values({
+          serverUuid,
+          name,
+          apiKeyHash,
+          loaderType: loader_type,
+          mcVersion: mc_version,
+        })
         .returning();
 
-      fastify.log.info(
-        { serverId: server.id, serverUuid, ownerId: request.session?.userId },
-        "server registered",
-      );
+      fastify.log.info({ serverId: server.id, serverUuid }, "server registered");
 
       // apiKey is returned exactly once here; only its hash is ever persisted.
       return reply.code(201).send({
-        serverId: server.id,
-        serverUuid: server.serverUuid,
+        server_uuid: server.serverUuid,
+        api_key: apiKey,
         name: server.name,
-        loaderType: server.loaderType,
-        mcVersion: server.mcVersion,
-        apiKey,
-        createdAt: server.createdAt.toISOString(),
+        loader_type: server.loaderType,
+        mc_version: server.mcVersion,
+        created_at: server.createdAt.toISOString(),
       });
     },
   );

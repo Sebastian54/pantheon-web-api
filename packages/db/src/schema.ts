@@ -132,6 +132,9 @@ export const servers = pgTable("servers", {
     .$onUpdate(() => new Date()),
 }, (table) => ({
   serverUuidUniqueIdx: uniqueIndex("servers_server_uuid_unique_idx").on(table.serverUuid),
+  // Deterministic SHA-256 hash — unique lets server auth look up a row by
+  // hash alone (WHERE api_key_hash = ?) instead of needing a second header.
+  apiKeyHashUniqueIdx: uniqueIndex("servers_api_key_hash_unique_idx").on(table.apiKeyHash),
 }));
 
 // ==============================================================================

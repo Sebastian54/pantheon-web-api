@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "servers_api_key_hash_unique_idx" ON "servers" USING btree ("api_key_hash");

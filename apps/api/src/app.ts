@@ -21,6 +21,11 @@ export async function buildApp() {
       level: env.LOG_LEVEL,
       transport: env.NODE_ENV === "development" ? { target: "pino-pretty" } : undefined,
     },
+    // The only ingress path is the cloudflared tunnel (the API container isn't
+    // publicly port-mapped — see docker-compose.yml), so it's safe to trust its
+    // X-Forwarded-For. Without this, every request behind the tunnel would
+    // appear to share one IP, making all per-IP rate limiting meaningless.
+    trustProxy: true,
   }).withTypeProvider<ZodTypeProvider>();
 
   fastify.setValidatorCompiler(validatorCompiler);

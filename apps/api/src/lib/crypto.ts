@@ -1,8 +1,6 @@
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
-import { env } from "../config/env";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
-const KEY_PREFIX = "pk_live_";
-const SCRYPT_KEYLEN = 64;
+const KEY_PREFIX = "ptn_live_";
 
 /** Raw key handed to the operator once at registration time; only its hash is persisted. */
 export function generateApiKey(): string {
@@ -13,20 +11,22 @@ export function generateServerUuid(): string {
   return randomUUID();
 }
 
-/** Stored as `${salt}:${derivedHex}` — salt is per-key, pepper is a server-side secret. */
+/**
+ * Deterministic SHA-256 — safe here because the input is a 256-bit random
+ * token (crypto.randomBytes), not a low-entropy password: brute-forcing or
+ * rainbow-tabling a value with that much entropy is infeasible regardless of
+ * hash speed. Determinism is what lets servers authenticate via a single
+ * `Authorization: Bearer` lookup (WHERE api_key_hash = ?) instead of needing
+ * a secondary identifier.
+ */
 export function hashApiKey(rawKey: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const derived = scryptSync(`${rawKey}${env.API_KEY_PEPPER}`, salt, SCRYPT_KEYLEN);
-  return `${salt}:${derived.toString("hex")}`;
+  return createHash("sha256").update(rawKey, "utf8").digest("hex");
 }
 
 export function verifyApiKey(rawKey: string, storedHash: string): boolean {
-  const [salt, derivedHex] = storedHash.split(":");
-  if (!salt || !derivedHex) return false;
+  const candidate = Buffer.from(hashApiKey(rawKey), "hex");
+  const stored = Buffer.from(storedHash, "hex");
+  if (candidate.length !== stored.length) return false;
 
-  const derived = scryptSync(`${rawKey}${env.API_KEY_PEPPER}`, salt, SCRYPT_KEYLEN);
-  const stored = Buffer.from(derivedHex, "hex");
-  if (derived.length !== stored.length) return false;
-
-  return timingSafeEqual(derived, stored);
+  return timingSafeEqual(candidate, stored);
 }

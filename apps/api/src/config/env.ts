@@ -13,10 +13,6 @@ const envSchema = z.object({
   // forwarded as a Bearer token, without a network round-trip to the web app.
   NEXTAUTH_SECRET: z.string().min(1, "NEXTAUTH_SECRET is required"),
 
-  // Server-side secret mixed into every API key hash (in addition to a
-  // per-key random salt). Never derivable from the database alone.
-  API_KEY_PEPPER: z.string().min(32, "API_KEY_PEPPER must be at least 32 characters"),
-
   SENTRY_DSN: z.string().url().optional(),
   CORS_ORIGIN: z.string().min(1).default("https://archer.software"),
 });

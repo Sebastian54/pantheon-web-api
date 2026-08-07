@@ -2,11 +2,9 @@ import fp from "fastify-plugin";
 import { eq } from "drizzle-orm";
 import { servers } from "@pantheon/db";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
-import { verifyApiKey } from "../lib/crypto";
+import { hashApiKey } from "../lib/crypto";
 
 type ServerContext = { id: string; serverUuid: string };
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -19,26 +17,26 @@ declare module "fastify" {
 
 /**
  * Authenticates Minecraft-server-side requests (Command Spy, Ledger) using the
- * server_uuid + api_key pair issued by POST /api/v1/register. server_uuid gives
- * an O(1) row lookup so the (expensive, scrypt) key check only ever runs once
- * per request, regardless of how many servers are registered.
+ * api_key issued by POST /api/v1/register, sent as `Authorization: Bearer`.
+ * The hash is deterministic (see lib/crypto.ts), so the row is found with a
+ * single indexed lookup — no separate server_uuid header needed.
  */
 const serverAuthPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.decorateRequest("serverContext", null);
 
   fastify.decorate("requireServerApiKey", async (request: FastifyRequest, reply: FastifyReply) => {
-    const serverUuid = request.headers["x-server-uuid"];
-    const apiKey = request.headers["x-api-key"];
+    const authHeader = request.headers.authorization;
+    const apiKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
 
-    if (typeof serverUuid !== "string" || typeof apiKey !== "string" || !UUID_RE.test(serverUuid)) {
+    if (!apiKey) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
     const server = await fastify.db.query.servers.findFirst({
-      where: eq(servers.serverUuid, serverUuid),
+      where: eq(servers.apiKeyHash, hashApiKey(apiKey)),
     });
 
-    if (!server || !server.isActive || !verifyApiKey(apiKey, server.apiKeyHash)) {
+    if (!server || !server.isActive) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
 
