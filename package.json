@@ -1,0 +1,43 @@
+{
+  "name": "pantheon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pantheon - Multi-tenant admin dashboard for remote Minecraft server analytics, command logs, and moderation data.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.9.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present && rimraf node_modules",
+    "db:generate": "npm run db:generate -w packages/db",
+    "db:migrate": "npm run db:migrate -w packages/db",
+    "db:studio": "npm run db:studio -w packages/db",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "prettier": "^3.3.2",
+    "rimraf": "^5.0.7",
+    "turbo": "^2.0.6",
+    "typescript": "^5.5.3"
+  },
+  "overrides": {
+    "next-auth": {
+      "next": "16.3.0",
+      "react": "18.3.1",
+      "react-dom": "18.3.1"
+    }
+  },
+  "packageManager": "npm@10.8.1"
+}
