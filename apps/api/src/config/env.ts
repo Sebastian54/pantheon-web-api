@@ -24,6 +24,13 @@ const envSchema = z.object({
     emptyToUndefined,
     z.string().min(1).default("https://archer.software"),
   ),
+
+  // Same Discord application as apps/web's NextAuth config. Optional at the
+  // env-schema level (not required-to-boot) so an unconfigured deployment
+  // doesn't crash-loop the whole API the way SENTRY_DSN did — the mobile
+  // auth route checks for these itself and returns a clear 503 if unset.
+  DISCORD_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  DISCORD_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
 });
 
 export const env = envSchema.parse(process.env);
