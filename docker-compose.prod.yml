@@ -74,6 +74,23 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+      # Exposes the metrics server on all interfaces (still only reachable
+      # within pantheon-net) so `cloudflared tunnel ready` below has an
+      # endpoint to query.
+      TUNNEL_METRICS: 0.0.0.0:20241
+    # cloudflared can end up with an established-but-not-actually-proxying
+    # connection (seen in practice: `docker ps` shows "Up" while every
+    # request 502s) that a plain `restart` doesn't reliably clear — only a
+    # full recreate did. This at least surfaces that state accurately as
+    # "unhealthy" instead of a misleading "Up", since Docker won't act on it
+    # automatically (restart policies trigger on exit, not on failed
+    # healthchecks) — `docker compose ps` is the signal to force-recreate it.
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       - api
       - web
