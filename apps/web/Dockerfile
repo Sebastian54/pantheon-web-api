@@ -30,6 +30,10 @@ RUN npm run build -w apps/web
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=deps /usr/src/app/node_modules ./node_modules
+# `npm run start -w apps/web` needs the workspace-root package.json (for the
+# "workspaces" field) present at /usr/src/app — without it npm can't resolve
+# the -w flag and fails with ENOENT on /usr/src/app/package.json.
+COPY package.json package-lock.json ./
 COPY --from=build /usr/src/app/apps/web/.next ./apps/web/.next
 COPY --from=build /usr/src/app/apps/web/public ./apps/web/public
 COPY --from=build /usr/src/app/apps/web/package.json ./apps/web/package.json
