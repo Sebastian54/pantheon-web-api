@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1786132955594,
+      "tag": "0000_equal_blackheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786132960998,
+      "tag": "0001_timescale_hypertables",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786140245238,
+      "tag": "0002_overconfident_scarlet_witch",
+      "breakpoints": true
+    }
+  ]
+}

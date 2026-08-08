@@ -68,7 +68,6 @@ lerna-debug.log*
 # ==============================================================================
 *.dump
 *.sql.gz
-/packages/db/drizzle/meta/
 pgdata/
 postgres-data/
 timescale-data/
