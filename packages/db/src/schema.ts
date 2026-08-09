@@ -20,10 +20,11 @@ import type { AdapterAccount } from "next-auth/adapters";
 // ==============================================================================
 
 /**
- * OWNER: global super-admin, implicit access to every server.
- * ADMIN: scoped access, granted per-server via userServers.
+ * Per-network role, assigned via networkMembers. OWNER/ADMIN have implicit
+ * access to every server in the network; MODERATOR needs an explicit
+ * serverAccessGrants row per server.
  */
-export const roleEnum = pgEnum("role", ["OWNER", "ADMIN"]);
+export const networkRoleEnum = pgEnum("network_role", ["OWNER", "ADMIN", "MODERATOR"]);
 
 export const loaderTypeEnum = pgEnum("loader_type", [
   "VANILLA",
@@ -38,7 +39,7 @@ export const loaderTypeEnum = pgEnum("loader_type", [
 ]);
 
 // ==============================================================================
-// NextAuth (Auth.js) core tables — extended with `role`
+// NextAuth (Auth.js) core tables
 // Shape follows the official Drizzle adapter: https://authjs.dev/reference/adapter/drizzle
 // ==============================================================================
 
@@ -48,10 +49,6 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
   image: text("image"),
-
-  // Discord OAuth identity is captured via the `accounts` table; this is
-  // Pantheon's own authorization role, independent of the OAuth provider.
-  role: roleEnum("role").notNull().default("ADMIN"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -105,11 +102,61 @@ export const verificationTokens = pgTable(
 );
 
 // ==============================================================================
+// Networks — team/tenant boundary. Each network has one owner and any number
+// of members (networkMembers); servers belong to exactly one network.
+// ==============================================================================
+
+export const networks = pgTable("networks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 128 }).notNull(),
+
+  // Deliberately restrict, not cascade (unlike most FKs below) — deleting a
+  // user should never silently delete an entire network and its servers.
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "restrict" }),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ==============================================================================
+// Network members — per-network role, independent of the global users.role.
+// ==============================================================================
+
+export const networkMembers = pgTable(
+  "network_members",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    networkId: uuid("network_id")
+      .notNull()
+      .references(() => networks.id, { onDelete: "cascade" }),
+    role: networkRoleEnum("role").notNull().default("MODERATOR"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.networkId] }),
+  }),
+);
+
+// ==============================================================================
 // Servers — one row per registered Minecraft server (the "handshake" target)
 // ==============================================================================
 
 export const servers = pgTable("servers", {
   id: uuid("id").primaryKey().defaultRandom(),
+
+  // Null until claimed into a network — POST /api/v1/register is an
+  // unauthenticated handshake with no way to know which network (if any) a
+  // freshly-booted server belongs to, so new rows land unclaimed. "set null"
+  // (not cascade) on delete: removing a network shouldn't delete the
+  // server/its event history, just orphan it back to unclaimed.
+  networkId: uuid("network_id").references(() => networks.id, { onDelete: "set null" }),
 
   // Public identifier embedded in the plugin/mod config on the MC server side.
   serverUuid: uuid("server_uuid").notNull().defaultRandom(),
@@ -138,23 +185,23 @@ export const servers = pgTable("servers", {
 }));
 
 // ==============================================================================
-// User <-> Server relation — scopes ADMIN role users to specific servers.
-// OWNER role users bypass this table entirely (global access).
+// Server access grants — whitelist of exactly which servers inside a network
+// a given user may see, on top of their network_members role.
 // ==============================================================================
 
-export const userServers = pgTable(
-  "user_servers",
+export const serverAccessGrants = pgTable(
+  "server_access_grants",
   {
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    serverId: uuid("server_id")
+    serverUuid: uuid("server_uuid")
       .notNull()
-      .references(() => servers.id, { onDelete: "cascade" }),
+      .references(() => servers.serverUuid, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.userId, table.serverId] }),
+    pk: primaryKey({ columns: [table.userId, table.serverUuid] }),
   }),
 );
 
@@ -225,7 +272,9 @@ export const ledgerLogs = pgTable(
 export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
   sessions: many(sessions),
-  userServers: many(userServers),
+  ownedNetworks: many(networks),
+  networkMemberships: many(networkMembers),
+  serverAccessGrants: many(serverAccessGrants),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -236,15 +285,30 @@ export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, { fields: [sessions.userId], references: [users.id] }),
 }));
 
-export const serversRelations = relations(servers, ({ many }) => ({
-  userServers: many(userServers),
+export const networksRelations = relations(networks, ({ one, many }) => ({
+  owner: one(users, { fields: [networks.ownerId], references: [users.id] }),
+  members: many(networkMembers),
+  servers: many(servers),
+}));
+
+export const networkMembersRelations = relations(networkMembers, ({ one }) => ({
+  user: one(users, { fields: [networkMembers.userId], references: [users.id] }),
+  network: one(networks, { fields: [networkMembers.networkId], references: [networks.id] }),
+}));
+
+export const serversRelations = relations(servers, ({ one, many }) => ({
+  network: one(networks, { fields: [servers.networkId], references: [networks.id] }),
+  accessGrants: many(serverAccessGrants),
   commandSpyLogs: many(commandSpyLogs),
   ledgerLogs: many(ledgerLogs),
 }));
 
-export const userServersRelations = relations(userServers, ({ one }) => ({
-  user: one(users, { fields: [userServers.userId], references: [users.id] }),
-  server: one(servers, { fields: [userServers.serverId], references: [servers.id] }),
+export const serverAccessGrantsRelations = relations(serverAccessGrants, ({ one }) => ({
+  user: one(users, { fields: [serverAccessGrants.userId], references: [users.id] }),
+  server: one(servers, {
+    fields: [serverAccessGrants.serverUuid],
+    references: [servers.serverUuid],
+  }),
 }));
 
 export const commandSpyLogsRelations = relations(commandSpyLogs, ({ one }) => ({

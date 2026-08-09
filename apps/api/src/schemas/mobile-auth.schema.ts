@@ -14,7 +14,6 @@ export const mobileDiscordAuthResponseSchema = z.object({
     id: z.string().uuid(),
     name: z.string().nullable(),
     email: z.string(),
-    role: z.enum(["OWNER", "ADMIN"]),
   }),
 });
 

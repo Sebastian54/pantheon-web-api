@@ -19,8 +19,8 @@ const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
  * The app drives the Discord authorize step itself (PKCE, custom URL scheme
  * redirect) and hands us just the resulting code — we do the token exchange
  * server-side (the only place DISCORD_CLIENT_SECRET may live) and mint a
- * session token in the exact same format apps/api's requireOwner already
- * decodes, so mobile and web sessions are interchangeable.
+ * session token in the exact same format apps/api's requireNetworkRole
+ * already decodes, so mobile and web sessions are interchangeable.
  */
 const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
   fastify.post(
@@ -93,7 +93,7 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
       }
 
       // 3. Genuinely new identity — create both rows. Matches the web
-      // flow's default: new users land as ADMIN with zero server grants.
+      // flow's default: new users land with zero network memberships.
       if (!user) {
         const [newUser] = await fastify.db
           .insert(users)
@@ -117,7 +117,7 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
 
       return reply.code(200).send({
         token,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        user: { id: user.id, name: user.name, email: user.email },
       });
     },
   );

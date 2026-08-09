@@ -1,5 +1,5 @@
-import { db, servers, userServers } from "@pantheon/db";
-import { desc, eq } from "drizzle-orm";
+import { db, servers, serverAccessGrants } from "@pantheon/db";
+import { desc, eq, inArray } from "drizzle-orm";
 
 export type ServerSummary = {
   id: string;
@@ -11,17 +11,47 @@ export type ServerSummary = {
   lastSeenAt: Date | null;
 };
 
-/** OWNER sees every registered server; ADMIN sees only servers granted via user_servers. */
-export async function getServersForUser(userId: string, role: "OWNER" | "ADMIN"): Promise<ServerSummary[]> {
-  if (role === "OWNER") {
-    return db.query.servers.findMany({ orderBy: desc(servers.createdAt) });
+type NetworkMembership = { id: string; role: "OWNER" | "ADMIN" | "MODERATOR" };
+
+/**
+ * OWNER/ADMIN see every server in that network; MODERATOR sees only servers
+ * granted via server_access_grants. Aggregated across every network the user
+ * belongs to.
+ */
+export async function getServersForUser(
+  userId: string,
+  networkMemberships: NetworkMembership[],
+): Promise<ServerSummary[]> {
+  const fullAccessNetworkIds = networkMemberships
+    .filter((membership) => membership.role === "OWNER" || membership.role === "ADMIN")
+    .map((membership) => membership.id);
+  const moderatorNetworkIds = new Set(
+    networkMemberships.filter((membership) => membership.role === "MODERATOR").map((m) => m.id),
+  );
+
+  const results: ServerSummary[] = [];
+
+  if (fullAccessNetworkIds.length > 0) {
+    results.push(
+      ...(await db.query.servers.findMany({
+        where: inArray(servers.networkId, fullAccessNetworkIds),
+        orderBy: desc(servers.createdAt),
+      })),
+    );
   }
 
-  const rows = await db.query.userServers.findMany({
-    where: eq(userServers.userId, userId),
-    with: { server: true },
-    orderBy: desc(userServers.createdAt),
-  });
+  if (moderatorNetworkIds.size > 0) {
+    const grants = await db.query.serverAccessGrants.findMany({
+      where: eq(serverAccessGrants.userId, userId),
+      with: { server: true },
+    });
 
-  return rows.map((row) => row.server);
+    for (const grant of grants) {
+      if (grant.server.networkId && moderatorNetworkIds.has(grant.server.networkId)) {
+        results.push(grant.server);
+      }
+    }
+  }
+
+  return results;
 }

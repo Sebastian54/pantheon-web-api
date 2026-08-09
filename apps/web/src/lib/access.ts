@@ -1,36 +1,59 @@
-import { db, servers, users } from "@pantheon/db";
-import { eq } from "drizzle-orm";
+import { db, servers, networkMembers } from "@pantheon/db";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
-export type AdminUserWithAccess = {
+export type NetworkMemberWithAccess = {
   id: string;
   name: string | null;
   email: string;
   grantedServers: { id: string; name: string }[];
 };
 
-/** OWNER-only view: every ADMIN user and which servers they've been granted. */
-export async function getAdminUsersWithAccess(): Promise<AdminUserWithAccess[]> {
-  const rows = await db.query.users.findMany({
-    where: eq(users.role, "ADMIN"),
-    orderBy: users.email,
+export type UnclaimedServer = {
+  id: string;
+  name: string;
+  serverUuid: string;
+  loaderType: string;
+  mcVersion: string;
+};
+
+/** MODERATOR members of a network and which of that network's servers they've been granted. */
+export async function getNetworkMembersWithAccess(networkId: string): Promise<NetworkMemberWithAccess[]> {
+  const members = await db.query.networkMembers.findMany({
+    where: and(eq(networkMembers.networkId, networkId), eq(networkMembers.role, "MODERATOR")),
     with: {
-      userServers: {
-        with: { server: { columns: { id: true, name: true } } },
+      user: {
+        with: {
+          serverAccessGrants: {
+            with: { server: { columns: { id: true, name: true, networkId: true } } },
+          },
+        },
       },
     },
   });
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    grantedServers: row.userServers.map((userServer) => userServer.server),
+  return members.map((member) => ({
+    id: member.user.id,
+    name: member.user.name,
+    email: member.user.email,
+    grantedServers: member.user.serverAccessGrants
+      .filter((grant) => grant.server.networkId === networkId)
+      .map((grant) => ({ id: grant.server.id, name: grant.server.name })),
   }));
 }
 
-export async function getAllServers() {
+export async function getServersForNetwork(networkId: string) {
   return db.query.servers.findMany({
-    columns: { id: true, name: true },
+    where: eq(servers.networkId, networkId),
+    columns: { id: true, name: true, serverUuid: true },
     orderBy: servers.name,
+  });
+}
+
+/** Servers that registered via the public handshake but haven't been claimed into a network yet. */
+export async function getUnclaimedServers(): Promise<UnclaimedServer[]> {
+  return db.query.servers.findMany({
+    where: isNull(servers.networkId),
+    columns: { id: true, name: true, serverUuid: true, loaderType: true, mcVersion: true },
+    orderBy: desc(servers.createdAt),
   });
 }

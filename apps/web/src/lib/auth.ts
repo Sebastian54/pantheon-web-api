@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import DiscordProvider from "next-auth/providers/discord";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { eq } from "drizzle-orm";
-import { db, users, accounts, sessions, verificationTokens } from "@pantheon/db";
+import { db, users, accounts, sessions, verificationTokens, networkMembers } from "@pantheon/db";
 
 export const authOptions: NextAuthOptions = {
   adapter: DrizzleAdapter(db, {
@@ -29,11 +29,16 @@ export const authOptions: NextAuthOptions = {
       if (session.user && token.sub) {
         session.user.id = token.sub;
 
-        const dbUser = await db.query.users.findFirst({
-          where: eq(users.id, token.sub),
+        const memberships = await db.query.networkMembers.findMany({
+          where: eq(networkMembers.userId, token.sub),
           columns: { role: true },
+          with: { network: { columns: { id: true, name: true } } },
         });
-        session.user.role = dbUser?.role ?? "ADMIN";
+        session.user.networks = memberships.map((membership) => ({
+          id: membership.network.id,
+          name: membership.network.name,
+          role: membership.role,
+        }));
       }
       return session;
     },
