@@ -11,6 +11,7 @@ import securityPlugin from "./plugins/security";
 import authPlugin from "./plugins/auth";
 import serverAuthPlugin from "./plugins/serverAuth";
 import healthRoute from "./routes/health";
+import debugSentryRoute from "./routes/debug-sentry";
 import registerRoute from "./routes/v1/register";
 import commandSpyRoute from "./routes/v1/command-spy";
 import ledgerRoute from "./routes/v1/ledger";
@@ -51,6 +52,7 @@ export async function buildApp() {
   await fastify.register(serverAuthPlugin);
 
   await fastify.register(healthRoute);
+  await fastify.register(debugSentryRoute);
   await fastify.register(registerRoute, { prefix: "/api/v1" });
   await fastify.register(commandSpyRoute, { prefix: "/api/v1" });
   await fastify.register(ledgerRoute, { prefix: "/api/v1" });
