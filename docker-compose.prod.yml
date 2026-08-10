@@ -41,8 +41,11 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     expose:
       - "4000"
+    # Static IP — see the note on the pantheon-net network definition below
+    # for why cloudflared needs this instead of the DNS name "api".
     networks:
-      - pantheon-net
+      pantheon-net:
+        ipv4_address: 172.28.0.10
 
   web:
     build:
@@ -65,8 +68,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     expose:
       - "3000"
+    # Static IP — see the note on the pantheon-net network definition below.
     networks:
-      - pantheon-net
+      pantheon-net:
+        ipv4_address: 172.28.0.11
 
   # Exists purely to prove `api`/`web` are actually name-resolvable and
   # HTTP-reachable from a peer container on pantheon-net. cloudflared's own
@@ -136,9 +141,29 @@ services:
     networks:
       - pantheon-net
 
+# api and web get static IPs (172.28.0.10/.11) instead of relying on Docker's
+# embedded DNS (127.0.0.11). Root-caused a recurring 502 to cloudflared's own
+# Go DNS resolver failing to resolve "api" via the embedded resolver — even
+# with a byte-identical, correct resolv.conf and reproducibly across multiple
+# fresh container recreations, while a sibling container (curl, see net-check
+# above) resolved the exact same name fine at the exact same moment. Static
+# IPs sidestep that entirely for cloudflared's origin routing. net-check
+# deliberately keeps testing by DNS name — its job is to catch general
+# name-resolution health on this network as an early-warning signal, which is
+# a different question from what cloudflared specifically needs to work.
+#
+# IMPORTANT: this only works once Cloudflare Tunnel's Public Hostname routes
+# (Zero Trust dashboard, not in this repo) are updated to point at these IPs
+# instead of the DNS names — archer.software -> http://172.28.0.11:3000,
+# api.archer.software -> http://172.28.0.10:4000. These IPs are pinned via
+# ipv4_address below, so they won't drift on redeploy as long as api/web keep
+# these fixed addresses.
 networks:
   pantheon-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   postgres-data:
