@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -171,6 +172,11 @@ export const servers = pgTable("servers", {
 
   isActive: boolean("is_active").notNull().default(true),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+
+  // Live stats, pushed by the Minecraft server plugin via POST /api/v1/heartbeat.
+  playerCount: integer("player_count").notNull().default(0),
+  maxPlayers: integer("max_players").notNull().default(20),
+  tps: doublePrecision("tps").notNull().default(20.0),
 
   // Short-lived pairing code shown at the console so an operator can link an
   // unclaimed server into their network without exposing the api_key. Null

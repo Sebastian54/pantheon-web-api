@@ -16,6 +16,7 @@ import commandSpyRoute from "./routes/v1/command-spy";
 import ledgerRoute from "./routes/v1/ledger";
 import mobileAuthRoute from "./routes/v1/mobile-auth";
 import networksRoute from "./routes/v1/networks";
+import heartbeatRoute from "./routes/v1/heartbeat";
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -57,6 +58,7 @@ export async function buildApp() {
   await fastify.register(ledgerRoute, { prefix: "/api/v1" });
   await fastify.register(mobileAuthRoute, { prefix: "/api/v1" });
   await fastify.register(networksRoute, { prefix: "/api/v1" });
+  await fastify.register(heartbeatRoute, { prefix: "/api/v1" });
 
   return fastify;
 }

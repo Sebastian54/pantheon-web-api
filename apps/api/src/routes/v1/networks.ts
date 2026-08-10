@@ -3,14 +3,18 @@ import { and, eq, gt } from "drizzle-orm";
 import { networks, networkMembers, servers, serverAccessGrants } from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
+  apiErrorSchema,
   createNetworkBodySchema,
   linkServerBodySchema,
-  linkServerErrorSchema,
   linkServerResponseSchema,
   networkIdParamsSchema,
   networkResponseSchema,
+  networkServerParamsSchema,
+  networkServerSummarySchema,
   networkServersListResponseSchema,
   networksListResponseSchema,
+  noContentResponseSchema,
+  renameServerBodySchema,
 } from "../../schemas/networks.schema";
 
 const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
@@ -106,6 +110,9 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         loaderType: server.loaderType,
         mcVersion: server.mcVersion,
         isActive: server.isActive,
+        playerCount: server.playerCount,
+        maxPlayers: server.maxPlayers,
+        tps: server.tps,
         lastSeenAt: server.lastSeenAt ? server.lastSeenAt.toISOString() : null,
         createdAt: server.createdAt.toISOString(),
       }));
@@ -119,7 +126,7 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
       schema: {
         params: networkIdParamsSchema,
         body: linkServerBodySchema,
-        response: { 200: linkServerResponseSchema, 404: linkServerErrorSchema },
+        response: { 200: linkServerResponseSchema, 404: apiErrorSchema },
       },
     },
     async (request, reply) => {
@@ -159,6 +166,72 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         serverUuid: claimed.serverUuid,
         name: claimed.name,
         networkId: claimed.networkId!,
+      });
+    },
+  );
+
+  fastify.delete(
+    "/networks/:networkId",
+    {
+      // requireNetworkRole already 403s (or 401s) before this handler runs
+      // for any networkId the caller isn't an OWNER of — including a
+      // nonexistent one, since a network_members row can't exist without a
+      // real network behind it. No separate existence check needed.
+      preHandler: fastify.requireNetworkRole("OWNER"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 204: noContentResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      const { networkId } = request.params;
+
+      // servers.network_id is ON DELETE SET NULL and network_members.network_id
+      // is ON DELETE CASCADE (see schema.ts) — deleting the network row alone
+      // is enough to orphan its servers back to unclaimed and drop its
+      // membership rows, no manual cascade needed here.
+      await fastify.db.delete(networks).where(eq(networks.id, networkId));
+
+      return reply.code(204).send();
+    },
+  );
+
+  fastify.patch(
+    "/networks/:networkId/servers/:serverUuid",
+    {
+      preHandler: fastify.requireNetworkRole("ADMIN"),
+      schema: {
+        params: networkServerParamsSchema,
+        body: renameServerBodySchema,
+        response: { 200: networkServerSummarySchema, 404: apiErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const { networkId, serverUuid } = request.params;
+      const { name } = request.body;
+
+      const [renamed] = await fastify.db
+        .update(servers)
+        .set({ name })
+        .where(and(eq(servers.serverUuid, serverUuid), eq(servers.networkId, networkId)))
+        .returning();
+
+      if (!renamed) {
+        return reply.code(404).send({ error: "Not Found", message: "Server not found in this network" });
+      }
+
+      return reply.code(200).send({
+        id: renamed.id,
+        serverUuid: renamed.serverUuid,
+        name: renamed.name,
+        loaderType: renamed.loaderType,
+        mcVersion: renamed.mcVersion,
+        isActive: renamed.isActive,
+        playerCount: renamed.playerCount,
+        maxPlayers: renamed.maxPlayers,
+        tps: renamed.tps,
+        lastSeenAt: renamed.lastSeenAt ? renamed.lastSeenAt.toISOString() : null,
+        createdAt: renamed.createdAt.toISOString(),
       });
     },
   );

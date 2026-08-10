@@ -34,10 +34,16 @@ export const linkServerResponseSchema = z.object({
   networkId: z.string().uuid(),
 });
 
-export const linkServerErrorSchema = z.object({
+// Generic error shape, reused across every route below that can 404/403.
+export const apiErrorSchema = z.object({
   error: z.string(),
   message: z.string().optional(),
 });
+
+// Fastify skips body serialization entirely for a 204 status regardless of
+// the declared schema, but fastify-type-provider-zod still needs a schema
+// entry to know the response is expected to validate against "no value".
+export const noContentResponseSchema = z.void();
 
 export const networkServerSummarySchema = z.object({
   id: z.string().uuid(),
@@ -46,8 +52,20 @@ export const networkServerSummarySchema = z.object({
   loaderType: z.string(),
   mcVersion: z.string(),
   isActive: z.boolean(),
+  playerCount: z.number().int(),
+  maxPlayers: z.number().int(),
+  tps: z.number(),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
 });
 
 export const networkServersListResponseSchema = z.array(networkServerSummarySchema);
+
+export const networkServerParamsSchema = z.object({
+  networkId: z.string().uuid(),
+  serverUuid: z.string().uuid(),
+});
+
+export const renameServerBodySchema = z.object({
+  name: z.string().trim().min(1).max(128),
+});
