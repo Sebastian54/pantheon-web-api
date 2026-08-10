@@ -71,7 +71,9 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    # --protocol http2 forces TCP instead of QUIC (UDP) — the LXC/Proxmox
+    # network path was dropping/timing out long-lived QUIC connections.
+    command: tunnel --protocol http2 --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
       # Exposes the metrics server on all interfaces (still only reachable
