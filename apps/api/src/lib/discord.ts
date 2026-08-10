@@ -1,5 +1,11 @@
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 
+// Neither fetch below had a timeout, so a stalled connection to Discord's API
+// left the request handler awaiting forever — Fastify never responds, and
+// Cloudflare's edge eventually gives up and returns 502 while the origin is
+// still stuck. Bounding both calls guarantees the handler always settles.
+const DISCORD_FETCH_TIMEOUT_MS = 10_000;
+
 export type DiscordTokenResponse = {
   access_token: string;
   token_type: string;
@@ -37,6 +43,7 @@ export async function exchangeDiscordCode(params: {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(DISCORD_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -49,6 +56,7 @@ export async function exchangeDiscordCode(params: {
 export async function fetchDiscordUser(accessToken: string): Promise<DiscordUser> {
   const response = await fetch(`${DISCORD_API_BASE}/users/@me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DISCORD_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
