@@ -17,5 +17,6 @@ export const registerServerResponseSchema = z.object({
   name: z.string(),
   loader_type: z.enum(loaderTypeEnum.enumValues),
   mc_version: z.string(),
+  link_code: z.string(),
   created_at: z.string(),
 });

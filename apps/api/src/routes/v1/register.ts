@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { servers } from "@pantheon/db";
-import { generateApiKey, generateServerUuid, hashApiKey } from "../../lib/crypto";
+import { generateApiKey, generateLinkCode, generateServerUuid, hashApiKey } from "../../lib/crypto";
 import {
   registerServerBodySchema,
   registerServerResponseSchema,
@@ -39,6 +39,8 @@ const registerRoute: FastifyPluginAsyncZod = async (fastify) => {
       const name = request.body.name ?? `Server-${serverUuid.slice(0, 8)}`;
       const apiKey = generateApiKey();
       const apiKeyHash = hashApiKey(apiKey);
+      const linkCode = generateLinkCode();
+      const linkCodeExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
       const [server] = await fastify.db
         .insert(servers)
@@ -48,18 +50,22 @@ const registerRoute: FastifyPluginAsyncZod = async (fastify) => {
           apiKeyHash,
           loaderType: loader_type,
           mcVersion: mc_version,
+          linkCode,
+          linkCodeExpiresAt,
         })
         .returning();
 
       fastify.log.info({ serverId: server.id, serverUuid }, "server registered");
 
-      // apiKey is returned exactly once here; only its hash is ever persisted.
+      // apiKey and linkCode are both returned exactly once here — only
+      // apiKey's hash is persisted, and linkCode is cleared once claimed.
       return reply.code(201).send({
         server_uuid: server.serverUuid,
         api_key: apiKey,
         name: server.name,
         loader_type: server.loaderType,
         mc_version: server.mcVersion,
+        link_code: server.linkCode!,
         created_at: server.createdAt.toISOString(),
       });
     },

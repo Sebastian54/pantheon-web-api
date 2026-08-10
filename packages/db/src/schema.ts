@@ -172,6 +172,13 @@ export const servers = pgTable("servers", {
   isActive: boolean("is_active").notNull().default(true),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
 
+  // Short-lived pairing code shown at the console so an operator can link an
+  // unclaimed server into their network without exposing the api_key. Null
+  // once claimed (or once the 24h window lapses) — see routes/v1/register.ts
+  // and routes/v1/networks.ts's link route.
+  linkCode: varchar("link_code", { length: 9 }),
+  linkCodeExpiresAt: timestamp("link_code_expires_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -182,6 +189,7 @@ export const servers = pgTable("servers", {
   // Deterministic SHA-256 hash — unique lets server auth look up a row by
   // hash alone (WHERE api_key_hash = ?) instead of needing a second header.
   apiKeyHashUniqueIdx: uniqueIndex("servers_api_key_hash_unique_idx").on(table.apiKeyHash),
+  linkCodeUniqueIdx: uniqueIndex("servers_link_code_unique_idx").on(table.linkCode),
 }));
 
 // ==============================================================================

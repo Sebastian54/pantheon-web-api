@@ -5,8 +5,10 @@ import { networkMembers, users } from "@pantheon/db";
 import type { FastifyPluginAsync, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { env } from "../config/env";
 
-type Session = { userId: string };
 type NetworkRole = "OWNER" | "ADMIN" | "MODERATOR";
+// networkRole is only populated by requireNetworkRole, for the :networkId in
+// that request's route params — it is not a global role.
+type Session = { userId: string; networkRole?: NetworkRole };
 
 const ROLE_RANK: Record<NetworkRole, number> = { MODERATOR: 0, ADMIN: 1, OWNER: 2 };
 
@@ -84,7 +86,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         return reply.code(403).send({ error: `Forbidden: ${minRole}+ role required` });
       }
 
-      request.session = session;
+      request.session = { ...session, networkRole: membership.role };
     };
   });
 };

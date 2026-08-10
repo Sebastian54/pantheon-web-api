@@ -16,3 +16,38 @@ export const networkResponseSchema = z.object({
 });
 
 export const networksListResponseSchema = z.array(networkResponseSchema);
+
+export const networkIdParamsSchema = z.object({
+  networkId: z.string().uuid(),
+});
+
+// camelCase, like the rest of this file — unlike registerServerBodySchema,
+// this endpoint is JS/mobile-facing, not Java-plugin-consumed.
+export const linkServerBodySchema = z.object({
+  linkCode: z.string().trim().min(1),
+});
+
+export const linkServerResponseSchema = z.object({
+  id: z.string().uuid(),
+  serverUuid: z.string().uuid(),
+  name: z.string(),
+  networkId: z.string().uuid(),
+});
+
+export const linkServerErrorSchema = z.object({
+  error: z.string(),
+  message: z.string().optional(),
+});
+
+export const networkServerSummarySchema = z.object({
+  id: z.string().uuid(),
+  serverUuid: z.string().uuid(),
+  name: z.string(),
+  loaderType: z.string(),
+  mcVersion: z.string(),
+  isActive: z.boolean(),
+  lastSeenAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const networkServersListResponseSchema = z.array(networkServerSummarySchema);
