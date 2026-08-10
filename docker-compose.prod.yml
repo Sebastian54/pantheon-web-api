@@ -68,6 +68,35 @@ services:
     networks:
       - pantheon-net
 
+  # Exists purely to prove `api`/`web` are actually name-resolvable and
+  # HTTP-reachable from a peer container on pantheon-net. cloudflared's own
+  # healthcheck below only proves it can reach Cloudflare's edge — it stayed
+  # "healthy" through an incident where cloudflared's container couldn't
+  # resolve "api" at all ("dial tcp: lookup api ...: no such host") and every
+  # real request 502'd. cloudflared's image is a scratch build with no shell
+  # (confirmed: `exec sh` fails with "executable file not found"), so it's
+  # architecturally unable to run a check like this on itself — this sidecar
+  # exists to cover that gap from a container that can.
+  net-check:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    depends_on:
+      - api
+      - web
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS --max-time 3 http://api:4000/healthz && curl -fsS --max-time 3 -o /dev/null http://web:3000/",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - pantheon-net
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
@@ -87,6 +116,10 @@ services:
     # "unhealthy" instead of a misleading "Up", since Docker won't act on it
     # automatically (restart policies trigger on exit, not on failed
     # healthchecks) — `docker compose ps` is the signal to force-recreate it.
+    # This only checks edge connectivity, not origin reachability — that's
+    # what net-check (above) covers; requiring it healthy before cloudflared
+    # even starts means a broken origin-DNS state now blocks the deploy
+    # loudly instead of silently reporting "healthy" while every request 502s.
     healthcheck:
       test: ["CMD", "cloudflared", "tunnel", "ready"]
       interval: 15s
@@ -94,8 +127,12 @@ services:
       retries: 3
       start_period: 20s
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_started
+      web:
+        condition: service_started
+      net-check:
+        condition: service_healthy
     networks:
       - pantheon-net
 
