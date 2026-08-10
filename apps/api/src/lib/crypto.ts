@@ -17,6 +17,11 @@ export function generateLinkCode(): string {
   return `${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
 }
 
+/** Inserts the missing hyphen if a client sends the bare 8 characters (e.g. "C8R2WGQE" -> "C8R2-WGQE"). */
+export function normalizeLinkCode(code: string): string {
+  return /^[A-Z0-9]{8}$/.test(code) ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
+}
+
 /** Raw key handed to the operator once at registration time; only its hash is persisted. */
 export function generateApiKey(): string {
   return `${KEY_PREFIX}${randomBytes(32).toString("base64url")}`;

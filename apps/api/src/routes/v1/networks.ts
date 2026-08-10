@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { and, eq, gt } from "drizzle-orm";
 import { networks, networkMembers, servers, serverAccessGrants } from "@pantheon/db";
+import { normalizeLinkCode } from "../../lib/crypto";
 import {
   createNetworkBodySchema,
   linkServerBodySchema,
@@ -123,7 +124,7 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
     },
     async (request, reply) => {
       const { networkId } = request.params;
-      const { linkCode } = request.body;
+      const linkCode = normalizeLinkCode(request.body.linkCode);
       const userId = request.session!.userId;
 
       const claimed = await fastify.db.transaction(async (tx) => {
