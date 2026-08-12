@@ -113,6 +113,7 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         playerCount: server.playerCount,
         maxPlayers: server.maxPlayers,
         tps: server.tps,
+        installedMods: server.installedMods,
         lastSeenAt: server.lastSeenAt ? server.lastSeenAt.toISOString() : null,
         createdAt: server.createdAt.toISOString(),
       }));
@@ -230,6 +231,7 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         playerCount: renamed.playerCount,
         maxPlayers: renamed.maxPlayers,
         tps: renamed.tps,
+        installedMods: renamed.installedMods,
         lastSeenAt: renamed.lastSeenAt ? renamed.lastSeenAt.toISOString() : null,
         createdAt: renamed.createdAt.toISOString(),
       });

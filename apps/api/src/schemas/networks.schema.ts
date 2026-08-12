@@ -55,6 +55,7 @@ export const networkServerSummarySchema = z.object({
   playerCount: z.number().int(),
   maxPlayers: z.number().int(),
   tps: z.number(),
+  installedMods: z.array(z.string()),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
 });

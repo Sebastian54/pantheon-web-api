@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   doublePrecision,
@@ -172,6 +172,12 @@ export const servers = pgTable("servers", {
 
   isActive: boolean("is_active").notNull().default(true),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+
+  // Mod IDs detected server-side (e.g. ["ledger", "spark", "carpet"]), pushed
+  // via POST /api/v1/heartbeat so the iOS app can hide UI for mods that
+  // aren't actually installed. A native text[] column, not jsonb — this is
+  // always a flat list of ids, nothing that needs nested structure.
+  installedMods: text("installed_mods").array().notNull().default(sql`'{}'::text[]`),
 
   // Live stats, pushed by the Minecraft server plugin via POST /api/v1/heartbeat.
   playerCount: integer("player_count").notNull().default(0),
