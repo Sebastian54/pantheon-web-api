@@ -2,7 +2,9 @@ import { z } from "zod";
 
 // Wire format is snake_case: sent directly by the telemetry mod (Java), not
 // the JS dashboard — same convention as register.schema.ts / heartbeat.schema.ts.
-const telemetryMetricsSchema = z.object({
+// Exported for reuse by telemetry-metrics.schema.ts (POST /telemetry/metrics
+// sends exactly this shape on its own, without a logs batch).
+export const telemetryMetricsSchema = z.object({
   tps: z.number().min(0),
   mspt: z.number().min(0),
   cpu_usage: z.number().min(0).max(100),

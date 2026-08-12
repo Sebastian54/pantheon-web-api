@@ -318,6 +318,36 @@ export const blockLogs = pgTable(
   }),
 );
 
+// Append-only history of the same metrics servers.tps/mspt/cpuUsage/
+// targetTickrate/hostileMobcap snapshot the latest value of — written
+// alongside that snapshot on every POST /api/v1/telemetry/metrics so
+// historical charts (e.g. TPS over time) are possible, which a single
+// overwritten row on servers can't support.
+export const serverMetrics = pgTable(
+  "server_metrics",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    tps: doublePrecision("tps").notNull(),
+    mspt: doublePrecision("mspt").notNull(),
+    cpuUsage: doublePrecision("cpu_usage").notNull(),
+    targetTickrate: integer("target_tickrate").notNull(),
+    hostileMobcap: integer("hostile_mobcap").notNull(),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.id, table.occurredAt] }),
+    serverOccurredIdx: index("server_metrics_server_occurred_idx").on(
+      table.serverId,
+      table.occurredAt,
+    ),
+  }),
+);
+
 // ==============================================================================
 // Relations (drizzle-orm query API)
 // ==============================================================================
@@ -355,6 +385,7 @@ export const serversRelations = relations(servers, ({ one, many }) => ({
   commandSpyLogs: many(commandSpyLogs),
   ledgerLogs: many(ledgerLogs),
   blockLogs: many(blockLogs),
+  serverMetrics: many(serverMetrics),
 }));
 
 export const serverAccessGrantsRelations = relations(serverAccessGrants, ({ one }) => ({
@@ -375,4 +406,8 @@ export const ledgerLogsRelations = relations(ledgerLogs, ({ one }) => ({
 
 export const blockLogsRelations = relations(blockLogs, ({ one }) => ({
   server: one(servers, { fields: [blockLogs.serverId], references: [servers.id] }),
+}));
+
+export const serverMetricsRelations = relations(serverMetrics, ({ one }) => ({
+  server: one(servers, { fields: [serverMetrics.serverId], references: [servers.id] }),
 }));
