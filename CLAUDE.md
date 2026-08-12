@@ -28,6 +28,7 @@ The frontend must strictly adhere to Apple's Liquid Glass UI (macOS Tahoe / iOS 
 ## Deployment & Infrastructure Rules
 *   **Host Environment:** Self-hosted Proxmox VE server.
 *   **Target Container:** Debian/Ubuntu LXC or VM running Docker and Docker Compose.
+*   **Database Hosting (production):** PostgreSQL/TimescaleDB is externally hosted on an Oracle Cloud VPS, not a container in `docker-compose.prod.yml` — there is no `postgres` service in prod (unlike `docker-compose.yml`, local dev, which still runs `timescale/timescaledb` locally). `api`/`web` both take `DATABASE_URL` straight from `.env.production` unmodified — nothing in the compose file rewrites it to an internal service name. The Oracle instance needs the `timescaledb` extension installed for the hypertable migrations (`0001`, `0007`) to apply.
 *   **Networking & SSL:** Cloudflare Tunnel (`cloudflared`) for securely routing traffic. Transport protocol is pinned to `http2` (TCP) via `command: tunnel --protocol http2 --no-autoupdate run` in `docker-compose.prod.yml` — the default QUIC (UDP) transport was timing out/dropping connections over the Proxmox LXC network path, so http2 trades QUIC's latency benefits for connection stability in this environment.
 *   **GitHub Student Pack Tools:** Integrate `@sentry/node` and `@sentry/nextjs` for error tracking.
 

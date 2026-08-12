@@ -5,40 +5,26 @@ name: pantheon-prod
 # cloudflared tunnel is the only ingress path, matching the networking model
 # in CLAUDE.md. Run with:
 #   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# No postgres service here (unlike docker-compose.yml/local dev) — the
+# database is externally hosted on an Oracle Cloud VPS. api/web both take
+# DATABASE_URL straight from .env.production; nothing in this file rewrites
+# it to an internal service name. See CLAUDE.md's Deployment & Infrastructure
+# Rules for the connection details/requirements on the Oracle side
+# (timescaledb extension must be installed there for the hypertable
+# migrations to apply).
 
 services:
-  postgres:
-    image: timescale/timescaledb:latest-pg16
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - pantheon-net
-
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     env_file:
       - .env.production
     environment:
       NODE_ENV: production
-      # Overrides anything in .env.production — always points at the
-      # postgres service's internal DNS name, not a host-facing address.
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: ${DATABASE_URL}
     expose:
       - "4000"
     # Static IP — see the note on the pantheon-net network definition below
@@ -65,7 +51,7 @@ services:
       - .env.production
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: ${DATABASE_URL}
     expose:
       - "3000"
     # Static IP — see the note on the pantheon-net network definition below.
@@ -164,6 +150,3 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/16
-
-volumes:
-  postgres-data:
