@@ -178,6 +178,12 @@ export const servers = pgTable("servers", {
   maxPlayers: integer("max_players").notNull().default(20),
   tps: doublePrecision("tps").notNull().default(20.0),
 
+  // Extended live metrics, pushed by the telemetry mod via POST /api/v1/telemetry/ingest.
+  mspt: doublePrecision("mspt").notNull().default(0),
+  cpuUsage: doublePrecision("cpu_usage").notNull().default(0),
+  targetTickrate: integer("target_tickrate").notNull().default(20),
+  hostileMobcap: integer("hostile_mobcap").notNull().default(0),
+
   // Short-lived pairing code shown at the console so an operator can link an
   // unclaimed server into their network without exposing the api_key. Null
   // once claimed (or once the 24h window lapses) — see routes/v1/register.ts
@@ -279,6 +285,39 @@ export const ledgerLogs = pgTable(
   }),
 );
 
+export const blockLogs = pgTable(
+  "block_logs",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    // The log row's own id in the telemetry mod's local SQLite db. Not used
+    // as our primary key (we generate our own), kept only for cross-referencing
+    // against the mod's cursor when debugging a specific batch.
+    clientLogId: integer("client_log_id").notNull(),
+
+    source: varchar("source", { length: 64 }).notNull(),
+    action: varchar("action", { length: 64 }).notNull(),
+
+    x: integer("x"),
+    y: integer("y"),
+    z: integer("z"),
+
+    metadata: jsonb("metadata"),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.id, table.occurredAt] }),
+    serverOccurredIdx: index("block_logs_server_occurred_idx").on(
+      table.serverId,
+      table.occurredAt,
+    ),
+  }),
+);
+
 // ==============================================================================
 // Relations (drizzle-orm query API)
 // ==============================================================================
@@ -315,6 +354,7 @@ export const serversRelations = relations(servers, ({ one, many }) => ({
   accessGrants: many(serverAccessGrants),
   commandSpyLogs: many(commandSpyLogs),
   ledgerLogs: many(ledgerLogs),
+  blockLogs: many(blockLogs),
 }));
 
 export const serverAccessGrantsRelations = relations(serverAccessGrants, ({ one }) => ({
@@ -331,4 +371,8 @@ export const commandSpyLogsRelations = relations(commandSpyLogs, ({ one }) => ({
 
 export const ledgerLogsRelations = relations(ledgerLogs, ({ one }) => ({
   server: one(servers, { fields: [ledgerLogs.serverId], references: [servers.id] }),
+}));
+
+export const blockLogsRelations = relations(blockLogs, ({ one }) => ({
+  server: one(servers, { fields: [blockLogs.serverId], references: [servers.id] }),
 }));

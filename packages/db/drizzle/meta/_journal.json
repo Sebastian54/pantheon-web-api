@@ -43,6 +43,20 @@
       "when": 1786371948004,
       "tag": "0005_cultured_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786541239095,
+      "tag": "0006_worthless_kat_farrell",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786541239096,
+      "tag": "0007_block_logs_hypertable",
+      "breakpoints": true
     }
   ]
 }
