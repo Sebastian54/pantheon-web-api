@@ -3,8 +3,8 @@ name: pantheon-prod
 # Production stack for the self-hosted Proxmox deployment. Unlike
 # docker-compose.yml (local dev), no service publishes a host port — the
 # cloudflared tunnel is the only ingress path, matching the networking model
-# in CLAUDE.md. Run with:
-#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# in CLAUDE.md. Deploy via infra/deploy.sh, not a raw `up -d --build` — see
+# that script for why migrations need to run between build and restart.
 #
 # No postgres service here (unlike docker-compose.yml/local dev) — the
 # database is externally hosted on an Oracle Cloud VPS. api/web both take
@@ -16,6 +16,7 @@ name: pantheon-prod
 
 services:
   api:
+    image: pantheon-api:latest
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -32,6 +33,27 @@ services:
     networks:
       pantheon-net:
         ipv4_address: 172.28.0.10
+
+  # One-off migration runner, not part of the normal stack (profiles: [tools]
+  # keeps it out of `up -d`/`up -d --build` entirely). Reuses api's already-built
+  # image via the matching `image:` tag instead of its own `build:` section, so
+  # it never needs building itself and always runs whatever code api is about
+  # to run. Deliberately has no static IP (unlike api/web) — it's a throwaway
+  # container that exits after migrating, not an HTTP origin cloudflared routes
+  # to, and requesting api's pinned 172.28.0.10 here would collide with the
+  # still-running api container during the build-then-migrate-then-restart
+  # sequence infra/deploy.sh uses to avoid a schema/code mismatch window.
+  migrate:
+    image: pantheon-api:latest
+    profiles: ["tools"]
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+    command: ["npm", "run", "db:migrate", "-w", "packages/db"]
+    networks:
+      - pantheon-net
 
   web:
     build:
