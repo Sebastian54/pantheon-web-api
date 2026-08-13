@@ -196,6 +196,15 @@ export const servers = pgTable("servers", {
   cpuSystem10s: doublePrecision("cpu_system_10s"),
   hostileMobcapOverworld: integer("hostile_mobcap_overworld"),
 
+  // Host health — same sparse/nullable pattern as the metrics above. No
+  // mod-side source for these exists yet (nothing in pantheon-mc-mod reads
+  // memory/disk today), so this is a forward-looking contract for whatever
+  // agent ends up reporting it, not something already verified end-to-end.
+  memoryUsedMb: doublePrecision("memory_used_mb"),
+  memoryTotalMb: doublePrecision("memory_total_mb"),
+  diskUsedGb: doublePrecision("disk_used_gb"),
+  diskTotalGb: doublePrecision("disk_total_gb"),
+
   // Short-lived pairing code shown at the console so an operator can link an
   // unclaimed server into their network without exposing the api_key. Null
   // once claimed (or once the 24h window lapses) — see routes/v1/register.ts
@@ -349,6 +358,11 @@ export const serverMetrics = pgTable(
     cpuProcess10s: doublePrecision("cpu_process_10s"),
     cpuSystem10s: doublePrecision("cpu_system_10s"),
     hostileMobcapOverworld: integer("hostile_mobcap_overworld"),
+
+    memoryUsedMb: doublePrecision("memory_used_mb"),
+    memoryTotalMb: doublePrecision("memory_total_mb"),
+    diskUsedGb: doublePrecision("disk_used_gb"),
+    diskTotalGb: doublePrecision("disk_total_gb"),
 
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   },

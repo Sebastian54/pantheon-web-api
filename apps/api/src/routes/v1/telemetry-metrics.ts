@@ -42,6 +42,10 @@ const telemetryMetricsRoute: FastifyPluginAsyncZod = async (fastify) => {
       if (metrics.hostile_mobcap_overworld !== undefined) {
         snapshotUpdates.hostileMobcapOverworld = metrics.hostile_mobcap_overworld;
       }
+      if (metrics.memory_used_mb !== undefined) snapshotUpdates.memoryUsedMb = metrics.memory_used_mb;
+      if (metrics.memory_total_mb !== undefined) snapshotUpdates.memoryTotalMb = metrics.memory_total_mb;
+      if (metrics.disk_used_gb !== undefined) snapshotUpdates.diskUsedGb = metrics.disk_used_gb;
+      if (metrics.disk_total_gb !== undefined) snapshotUpdates.diskTotalGb = metrics.disk_total_gb;
 
       await fastify.db.transaction(async (tx) => {
         await tx.update(servers).set(snapshotUpdates).where(eq(servers.id, serverId));
@@ -56,6 +60,10 @@ const telemetryMetricsRoute: FastifyPluginAsyncZod = async (fastify) => {
           cpuProcess10s: metrics.cpu_process_10s ?? null,
           cpuSystem10s: metrics.cpu_system_10s ?? null,
           hostileMobcapOverworld: metrics.hostile_mobcap_overworld ?? null,
+          memoryUsedMb: metrics.memory_used_mb ?? null,
+          memoryTotalMb: metrics.memory_total_mb ?? null,
+          diskUsedGb: metrics.disk_used_gb ?? null,
+          diskTotalGb: metrics.disk_total_gb ?? null,
         });
       });
 

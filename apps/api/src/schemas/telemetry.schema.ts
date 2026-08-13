@@ -18,6 +18,15 @@ export const telemetryMetricsSchema = z.object({
   cpu_process_10s: z.number().min(0).max(100).nullish(),
   cpu_system_10s: z.number().min(0).max(100).nullish(),
   hostile_mobcap_overworld: z.number().int().min(0).nullish(),
+
+  // Host health, same sparse/nullable contract — no mod-side source exists
+  // yet for these (see packages/db/src/schema.ts's comment on servers'
+  // memoryUsedMb/etc), so treat this as an unverified forward-looking shape
+  // until something actually sends it.
+  memory_used_mb: z.number().min(0).nullish(),
+  memory_total_mb: z.number().min(0).nullish(),
+  disk_used_gb: z.number().min(0).nullish(),
+  disk_total_gb: z.number().min(0).nullish(),
 });
 
 const telemetryLogEntrySchema = z.object({

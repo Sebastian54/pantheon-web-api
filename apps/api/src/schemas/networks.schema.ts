@@ -64,6 +64,12 @@ export const networkServerSummarySchema = z.object({
   cpuProcess10s: z.number().nullable(),
   cpuSystem10s: z.number().nullable(),
   hostileMobcapOverworld: z.number().int().nullable(),
+  // Host health — same sparse/nullable contract as the metrics above; see
+  // packages/db/src/schema.ts for why this has no verified mod-side source yet.
+  memoryUsedMb: z.number().nullable(),
+  memoryTotalMb: z.number().nullable(),
+  diskUsedGb: z.number().nullable(),
+  diskTotalGb: z.number().nullable(),
   installedMods: z.array(z.string()),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
