@@ -362,6 +362,76 @@ export const serverMetrics = pgTable(
 );
 
 // ==============================================================================
+// Players — Plan-style player analytics, a separate pipeline from Command
+// Spy/Ledger/heartbeat/telemetry metrics (POST /api/v1/telemetry/players).
+// `players` is deliberately global, not per-network/per-server: a Minecraft
+// account uuid is one identity regardless of which server it's seen on, so
+// totalPlaytimeSeconds accumulates across every server this whole
+// multi-tenant deployment tracks — a player active on two different
+// networks' servers gets one combined total, visible to either network via
+// their own server's player_sessions rows.
+// ==============================================================================
+
+export const players = pgTable("players", {
+  // The player's actual Minecraft account UUID — already a stable, unique,
+  // permanent identity (Mojang never reassigns it), so it's the primary key
+  // directly rather than a synthetic id + separate unique column.
+  uuid: uuid("uuid").primaryKey(),
+  username: varchar("username", { length: 16 }).notNull(),
+  totalPlaytimeSeconds: integer("total_playtime_seconds").notNull().default(0),
+  registeredAt: timestamp("registered_at", { withTimezone: true }).notNull(),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export const playerSessions = pgTable(
+  "player_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    // The mod's/Plan's own session identifier. Only unique per-server (each
+    // server's own Plan instance keeps its own counter/id space), not
+    // globally — see the composite unique index below, which is also the
+    // upsert's ON CONFLICT target (a session is first written on login with
+    // logoutTime null, then updated in place once the player disconnects).
+    sessionId: text("session_id").notNull(),
+
+    playerUuid: uuid("player_uuid")
+      .notNull()
+      .references(() => players.uuid, { onDelete: "cascade" }),
+    serverUuid: uuid("server_uuid")
+      .notNull()
+      .references(() => servers.serverUuid, { onDelete: "cascade" }),
+
+    // Resolved location only — deliberately never a raw IP address. ISO
+    // 3166-1 alpha-2 country code (e.g. "US"); city is free text since
+    // there's no compact standard code for it.
+    geolocationCountry: varchar("geolocation_country", { length: 2 }),
+    geolocationCity: varchar("geolocation_city", { length: 128 }),
+
+    loginTime: timestamp("login_time", { withTimezone: true }).notNull(),
+    logoutTime: timestamp("logout_time", { withTimezone: true }),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => ({
+    serverSessionUniqueIdx: uniqueIndex("player_sessions_server_session_unique_idx").on(
+      table.serverUuid,
+      table.sessionId,
+    ),
+    playerIdx: index("player_sessions_player_idx").on(table.playerUuid),
+  }),
+);
+
+// ==============================================================================
 // Relations (drizzle-orm query API)
 // ==============================================================================
 
@@ -399,6 +469,7 @@ export const serversRelations = relations(servers, ({ one, many }) => ({
   ledgerLogs: many(ledgerLogs),
   blockLogs: many(blockLogs),
   serverMetrics: many(serverMetrics),
+  playerSessions: many(playerSessions),
 }));
 
 export const serverAccessGrantsRelations = relations(serverAccessGrants, ({ one }) => ({
@@ -423,4 +494,13 @@ export const blockLogsRelations = relations(blockLogs, ({ one }) => ({
 
 export const serverMetricsRelations = relations(serverMetrics, ({ one }) => ({
   server: one(servers, { fields: [serverMetrics.serverId], references: [servers.id] }),
+}));
+
+export const playersRelations = relations(players, ({ many }) => ({
+  sessions: many(playerSessions),
+}));
+
+export const playerSessionsRelations = relations(playerSessions, ({ one }) => ({
+  player: one(players, { fields: [playerSessions.playerUuid], references: [players.uuid] }),
+  server: one(servers, { fields: [playerSessions.serverUuid], references: [servers.serverUuid] }),
 }));
