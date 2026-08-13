@@ -91,6 +91,7 @@ export const renameServerBodySchema = z.object({
 export const networkPlayerSessionSchema = z.object({
   id: z.string().uuid(),
   playerUuid: z.string().uuid(),
+  serverUuid: z.string().uuid(),
   startedAt: z.string(),
   endedAt: z.string().nullable(),
   durationMinutes: z.number().int(),

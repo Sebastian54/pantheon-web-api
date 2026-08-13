@@ -176,6 +176,7 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
       return sessions.map((session) => ({
         id: session.id,
         playerUuid: session.playerUuid,
+        serverUuid: session.serverUuid,
         startedAt: session.loginTime.toISOString(),
         endedAt: session.logoutTime ? session.logoutTime.toISOString() : null,
         durationMinutes: Math.round(
