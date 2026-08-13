@@ -1,0 +1,1 @@
+ALTER TABLE "player_sessions" ALTER COLUMN "geolocation_country" SET DATA TYPE varchar(128);

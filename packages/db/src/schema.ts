@@ -407,10 +407,11 @@ export const playerSessions = pgTable(
       .notNull()
       .references(() => servers.serverUuid, { onDelete: "cascade" }),
 
-    // Resolved location only — deliberately never a raw IP address. ISO
-    // 3166-1 alpha-2 country code (e.g. "US"); city is free text since
-    // there's no compact standard code for it.
-    geolocationCountry: varchar("geolocation_country", { length: 2 }),
+    // Resolved location only — deliberately never a raw IP address. Not
+    // constrained to a 2-letter ISO code: Plan's GeoIP resolution can emit a
+    // full country name depending on its GeoIP database/config, so this has
+    // to hold either.
+    geolocationCountry: varchar("geolocation_country", { length: 128 }),
     geolocationCity: varchar("geolocation_city", { length: 128 }),
 
     loginTime: timestamp("login_time", { withTimezone: true }).notNull(),

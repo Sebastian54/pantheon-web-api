@@ -55,6 +55,15 @@ export const networkServerSummarySchema = z.object({
   playerCount: z.number().int(),
   maxPlayers: z.number().int(),
   tps: z.number(),
+  // Spark/Carpet-derived, all nullable — absent whenever the mod hasn't
+  // reported them yet (e.g. those mods aren't installed on that server).
+  // See apps/api/src/schemas/telemetry.schema.ts for why these are split out
+  // from `tps` above rather than replacing it (different data source).
+  tps10s: z.number().nullable(),
+  mspt10s: z.number().nullable(),
+  cpuProcess10s: z.number().nullable(),
+  cpuSystem10s: z.number().nullable(),
+  hostileMobcapOverworld: z.number().int().nullable(),
   installedMods: z.array(z.string()),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
@@ -70,3 +79,19 @@ export const networkServerParamsSchema = z.object({
 export const renameServerBodySchema = z.object({
   name: z.string().trim().min(1).max(128),
 });
+
+// camelCase, like the rest of this file — mobile/JS-facing, not
+// Java-plugin-consumed (see the convention note above linkServerBodySchema).
+export const networkPlayerSessionSchema = z.object({
+  id: z.string().uuid(),
+  playerUuid: z.string().uuid(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  durationMinutes: z.number().int(),
+  // Either a 2-letter ISO code or a full country name, depending on how
+  // Plan resolved it — see packages/db/src/schema.ts's player_sessions
+  // comment. Null until Plan's async GeoIP lookup resolves it.
+  geolocationCountry: z.string().nullable(),
+});
+
+export const networkPlayerSessionsListResponseSchema = z.array(networkPlayerSessionSchema);

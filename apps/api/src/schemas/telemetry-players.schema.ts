@@ -19,8 +19,10 @@ const playerEntrySchema = z.object({
   // Absent/omitted while the session is still active.
   logout_time: z.string().datetime().optional(),
 
-  // Resolved location only, never a raw IP.
-  geolocation_country: z.string().length(2).optional(),
+  // Resolved location only, never a raw IP. Not constrained to a 2-letter
+  // ISO code — Plan's GeoIP resolution can emit a full country name
+  // depending on its config, so this accepts either.
+  geolocation_country: z.string().min(1).max(128).optional(),
   geolocation_city: z.string().min(1).max(128).optional(),
 });
 

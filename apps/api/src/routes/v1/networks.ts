@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
-import { and, eq, gt } from "drizzle-orm";
-import { networks, networkMembers, servers, serverAccessGrants } from "@pantheon/db";
+import { and, eq, gt, inArray } from "drizzle-orm";
+import { networks, networkMembers, servers, serverAccessGrants, playerSessions } from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
   apiErrorSchema,
@@ -8,6 +8,7 @@ import {
   linkServerBodySchema,
   linkServerResponseSchema,
   networkIdParamsSchema,
+  networkPlayerSessionsListResponseSchema,
   networkResponseSchema,
   networkServerParamsSchema,
   networkServerSummarySchema,
@@ -113,9 +114,69 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         playerCount: server.playerCount,
         maxPlayers: server.maxPlayers,
         tps: server.tps,
+        tps10s: server.tps10s,
+        mspt10s: server.mspt10s,
+        cpuProcess10s: server.cpuProcess10s,
+        cpuSystem10s: server.cpuSystem10s,
+        hostileMobcapOverworld: server.hostileMobcapOverworld,
         installedMods: server.installedMods,
         lastSeenAt: server.lastSeenAt ? server.lastSeenAt.toISOString() : null,
         createdAt: server.createdAt.toISOString(),
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/players/sessions",
+    {
+      // Same visibility rule as GET /networks/:networkId/servers above:
+      // OWNER/ADMIN see sessions from every server in the network, MODERATOR
+      // only sessions from servers explicitly granted to them.
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 200: networkPlayerSessionsListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerUuids =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.serverUuid)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.serverUuid);
+
+      if (visibleServerUuids.length === 0) {
+        return [];
+      }
+
+      const sessions = await fastify.db.query.playerSessions.findMany({
+        where: inArray(playerSessions.serverUuid, visibleServerUuids),
+      });
+
+      const now = Date.now();
+      return sessions.map((session) => ({
+        id: session.id,
+        playerUuid: session.playerUuid,
+        startedAt: session.loginTime.toISOString(),
+        endedAt: session.logoutTime ? session.logoutTime.toISOString() : null,
+        durationMinutes: Math.round(
+          ((session.logoutTime ? session.logoutTime.getTime() : now) - session.loginTime.getTime()) / 60000,
+        ),
+        geolocationCountry: session.geolocationCountry,
       }));
     },
   );
@@ -231,6 +292,11 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         playerCount: renamed.playerCount,
         maxPlayers: renamed.maxPlayers,
         tps: renamed.tps,
+        tps10s: renamed.tps10s,
+        mspt10s: renamed.mspt10s,
+        cpuProcess10s: renamed.cpuProcess10s,
+        cpuSystem10s: renamed.cpuSystem10s,
+        hostileMobcapOverworld: renamed.hostileMobcapOverworld,
         installedMods: renamed.installedMods,
         lastSeenAt: renamed.lastSeenAt ? renamed.lastSeenAt.toISOString() : null,
         createdAt: renamed.createdAt.toISOString(),
