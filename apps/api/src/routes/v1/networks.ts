@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
-import { and, eq, gt, inArray } from "drizzle-orm";
-import { networks, networkMembers, servers, serverAccessGrants, playerSessions } from "@pantheon/db";
+import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { networks, networkMembers, servers, serverAccessGrants, playerSessions, players } from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
   apiErrorSchema,
@@ -9,6 +9,7 @@ import {
   linkServerResponseSchema,
   networkIdParamsSchema,
   networkPlayerSessionsListResponseSchema,
+  networkPlaytimeLeaderboardResponseSchema,
   networkResponseSchema,
   networkServerParamsSchema,
   networkServerSummarySchema,
@@ -181,6 +182,70 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
           ((session.logoutTime ? session.logoutTime.getTime() : now) - session.loginTime.getTime()) / 60000,
         ),
         geolocationCountry: session.geolocationCountry,
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/players/leaderboard",
+    {
+      // Same visibility rule as the two routes above.
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 200: networkPlaytimeLeaderboardResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerUuids =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.serverUuid)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.serverUuid);
+
+      if (visibleServerUuids.length === 0) {
+        return [];
+      }
+
+      // Deliberately NOT players.totalPlaytimeSeconds (a global running total
+      // across every network) — summed fresh from this network's own
+      // player_sessions rows only, so a player shared between two networks
+      // can't leak their playtime on one network's servers into another's
+      // leaderboard. Active sessions (logoutTime still null) count elapsed
+      // time up to now(), same as the /players/sessions route's duration calc.
+      const totalPlaytimeSecondsExpr = sql<number>`SUM(EXTRACT(EPOCH FROM (COALESCE(${playerSessions.logoutTime}, now()) - ${playerSessions.loginTime})))`;
+
+      const rows = await fastify.db
+        .select({
+          uuid: players.uuid,
+          username: players.username,
+          totalPlaytimeSeconds: totalPlaytimeSecondsExpr.as("total_playtime_seconds"),
+        })
+        .from(playerSessions)
+        .innerJoin(players, eq(players.uuid, playerSessions.playerUuid))
+        .where(inArray(playerSessions.serverUuid, visibleServerUuids))
+        .groupBy(players.uuid, players.username)
+        .orderBy(desc(totalPlaytimeSecondsExpr))
+        .limit(100);
+
+      return rows.map((row) => ({
+        uuid: row.uuid,
+        username: row.username,
+        totalPlaytimeSeconds: Math.round(row.totalPlaytimeSeconds),
       }));
     },
   );

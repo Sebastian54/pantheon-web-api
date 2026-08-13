@@ -101,3 +101,17 @@ export const networkPlayerSessionSchema = z.object({
 });
 
 export const networkPlayerSessionsListResponseSchema = z.array(networkPlayerSessionSchema);
+
+// Deliberately NOT players.totalPlaytimeSeconds (that column is a global
+// running total across every network this deployment hosts — see
+// packages/db/src/schema.ts's comment on the players table). This is
+// computed fresh per request from this network's own player_sessions rows
+// only, so a player shared between two networks doesn't leak their
+// playtime on one network's servers into another network's leaderboard.
+export const networkPlaytimeLeaderboardEntrySchema = z.object({
+  uuid: z.string().uuid(),
+  username: z.string(),
+  totalPlaytimeSeconds: z.number().int(),
+});
+
+export const networkPlaytimeLeaderboardResponseSchema = z.array(networkPlaytimeLeaderboardEntrySchema);
