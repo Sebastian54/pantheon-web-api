@@ -116,3 +116,19 @@ export const networkPlaytimeLeaderboardEntrySchema = z.object({
 });
 
 export const networkPlaytimeLeaderboardResponseSchema = z.array(networkPlaytimeLeaderboardEntrySchema);
+
+// command_spy_logs stores server_id (the internal servers.id FK), not
+// serverUuid — this is joined in at query time, not a raw column. Not
+// nullable: server_id is NOT NULL with ON DELETE CASCADE (see
+// packages/db/src/schema.ts), so a command_spy_logs row can't outlive its
+// server or exist without one — the join always resolves.
+export const networkCommandSpyLogSchema = z.object({
+  id: z.string().uuid(),
+  executor: z.string(),
+  executorUuid: z.string().uuid().nullable(),
+  command: z.string(),
+  occurredAt: z.string(),
+  serverUuid: z.string().uuid(),
+});
+
+export const networkCommandSpyLogsListResponseSchema = z.array(networkCommandSpyLogSchema);

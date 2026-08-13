@@ -1,12 +1,13 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
-import { networks, networkMembers, servers, serverAccessGrants, playerSessions, players } from "@pantheon/db";
+import { networks, networkMembers, servers, serverAccessGrants, playerSessions, players, commandSpyLogs } from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
   apiErrorSchema,
   createNetworkBodySchema,
   linkServerBodySchema,
   linkServerResponseSchema,
+  networkCommandSpyLogsListResponseSchema,
   networkIdParamsSchema,
   networkPlayerSessionsListResponseSchema,
   networkPlaytimeLeaderboardResponseSchema,
@@ -247,6 +248,74 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         uuid: row.uuid,
         username: row.username,
         totalPlaytimeSeconds: Math.round(row.totalPlaytimeSeconds),
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/command-spy",
+    {
+      // Same visibility rule as the routes above.
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 200: networkCommandSpyLogsListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { userId, networkRole } = request.session!;
+
+      // Unlike the other network-scoped routes above, this needs the
+      // internal server ids (not serverUuid) — command_spy_logs.server_id
+      // references servers.id.
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      // Every executed command gets a row here (a TimescaleDB hypertable —
+      // see packages/db/src/schema.ts), so this is much higher-volume than
+      // the sessions/leaderboard routes above. Capped to the most recent 100
+      // with no pagination yet, matching the leaderboard route's limit.
+      const rows = await fastify.db
+        .select({
+          id: commandSpyLogs.id,
+          executor: commandSpyLogs.executor,
+          executorUuid: commandSpyLogs.executorUuid,
+          command: commandSpyLogs.command,
+          occurredAt: commandSpyLogs.occurredAt,
+          serverUuid: servers.serverUuid,
+        })
+        .from(commandSpyLogs)
+        .innerJoin(servers, eq(servers.id, commandSpyLogs.serverId))
+        .where(inArray(commandSpyLogs.serverId, visibleServerIds))
+        .orderBy(desc(commandSpyLogs.occurredAt))
+        .limit(100);
+
+      return rows.map((row) => ({
+        id: row.id,
+        executor: row.executor,
+        executorUuid: row.executorUuid,
+        command: row.command,
+        occurredAt: row.occurredAt.toISOString(),
+        serverUuid: row.serverUuid,
       }));
     },
   );
