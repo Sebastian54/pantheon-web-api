@@ -184,11 +184,17 @@ export const servers = pgTable("servers", {
   maxPlayers: integer("max_players").notNull().default(20),
   tps: doublePrecision("tps").notNull().default(20.0),
 
-  // Extended live metrics, pushed by the telemetry mod via POST /api/v1/telemetry/ingest.
-  mspt: doublePrecision("mspt").notNull().default(0),
-  cpuUsage: doublePrecision("cpu_usage").notNull().default(0),
-  targetTickrate: integer("target_tickrate").notNull().default(20),
-  hostileMobcap: integer("hostile_mobcap").notNull().default(0),
+  // Extended live metrics, pushed by the telemetry mod via POST /api/v1/telemetry/metrics.
+  // All nullable, no defaults — unlike tps/playerCount/maxPlayers above (always
+  // available from the base server), these are only reported when the mod
+  // detects Spark (tps10s/mspt10s/cpuProcess10s/cpuSystem10s) or Carpet
+  // (hostileMobcapOverworld) actually installed, so "unknown" is a real,
+  // common state, not an edge case.
+  tps10s: doublePrecision("tps_10s"),
+  mspt10s: doublePrecision("mspt_10s"),
+  cpuProcess10s: doublePrecision("cpu_process_10s"),
+  cpuSystem10s: doublePrecision("cpu_system_10s"),
+  hostileMobcapOverworld: integer("hostile_mobcap_overworld"),
 
   // Short-lived pairing code shown at the console so an operator can link an
   // unclaimed server into their network without exposing the api_key. Null
@@ -324,11 +330,12 @@ export const blockLogs = pgTable(
   }),
 );
 
-// Append-only history of the same metrics servers.tps/mspt/cpuUsage/
-// targetTickrate/hostileMobcap snapshot the latest value of — written
-// alongside that snapshot on every POST /api/v1/telemetry/metrics so
-// historical charts (e.g. TPS over time) are possible, which a single
-// overwritten row on servers can't support.
+// Append-only history of the same metrics servers.tps10s/mspt10s/
+// cpuProcess10s/cpuSystem10s/hostileMobcapOverworld snapshot the latest
+// value of — written alongside that snapshot on every POST
+// /api/v1/telemetry/metrics so historical charts (e.g. TPS over time) are
+// possible, which a single overwritten row on servers can't support. All
+// nullable, matching the snapshot columns — see the comment there.
 export const serverMetrics = pgTable(
   "server_metrics",
   {
@@ -337,11 +344,11 @@ export const serverMetrics = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: "cascade" }),
 
-    tps: doublePrecision("tps").notNull(),
-    mspt: doublePrecision("mspt").notNull(),
-    cpuUsage: doublePrecision("cpu_usage").notNull(),
-    targetTickrate: integer("target_tickrate").notNull(),
-    hostileMobcap: integer("hostile_mobcap").notNull(),
+    tps10s: doublePrecision("tps_10s"),
+    mspt10s: doublePrecision("mspt_10s"),
+    cpuProcess10s: doublePrecision("cpu_process_10s"),
+    cpuSystem10s: doublePrecision("cpu_system_10s"),
+    hostileMobcapOverworld: integer("hostile_mobcap_overworld"),
 
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   },

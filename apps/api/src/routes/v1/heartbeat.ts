@@ -20,7 +20,7 @@ const heartbeatRoute: FastifyPluginAsyncZod = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { player_count, max_players, tps, installed_mods } = request.body;
+      const { player_count, max_players, tps, capabilities } = request.body;
       const { id } = request.serverContext!;
 
       await fastify.db
@@ -30,7 +30,7 @@ const heartbeatRoute: FastifyPluginAsyncZod = async (fastify) => {
           maxPlayers: max_players,
           tps,
           lastSeenAt: new Date(),
-          ...(installed_mods !== undefined ? { installedMods: installed_mods } : {}),
+          ...(capabilities !== undefined ? { installedMods: capabilities } : {}),
         })
         .where(eq(servers.id, id));
 

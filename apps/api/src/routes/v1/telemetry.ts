@@ -31,18 +31,17 @@ const telemetryRoute: FastifyPluginAsyncZod = async (fastify) => {
       const { id: serverId } = request.serverContext!;
       const { metrics, logs } = request.body;
 
+      const snapshotUpdates: Partial<typeof servers.$inferInsert> = { lastSeenAt: new Date() };
+      if (metrics.tps_10s !== undefined) snapshotUpdates.tps10s = metrics.tps_10s;
+      if (metrics.mspt_10s !== undefined) snapshotUpdates.mspt10s = metrics.mspt_10s;
+      if (metrics.cpu_process_10s !== undefined) snapshotUpdates.cpuProcess10s = metrics.cpu_process_10s;
+      if (metrics.cpu_system_10s !== undefined) snapshotUpdates.cpuSystem10s = metrics.cpu_system_10s;
+      if (metrics.hostile_mobcap_overworld !== undefined) {
+        snapshotUpdates.hostileMobcapOverworld = metrics.hostile_mobcap_overworld;
+      }
+
       const inserted = await fastify.db.transaction(async (tx) => {
-        await tx
-          .update(servers)
-          .set({
-            tps: metrics.tps,
-            mspt: metrics.mspt,
-            cpuUsage: metrics.cpu_usage,
-            targetTickrate: metrics.target_tickrate,
-            hostileMobcap: metrics.hostile_mobcap,
-            lastSeenAt: new Date(),
-          })
-          .where(eq(servers.id, serverId));
+        await tx.update(servers).set(snapshotUpdates).where(eq(servers.id, serverId));
 
         if (logs.length === 0) {
           return 0;

@@ -29,26 +29,33 @@ const telemetryMetricsRoute: FastifyPluginAsyncZod = async (fastify) => {
       const { id: serverId } = request.serverContext!;
       const metrics = request.body;
 
-      await fastify.db.transaction(async (tx) => {
-        await tx
-          .update(servers)
-          .set({
-            tps: metrics.tps,
-            mspt: metrics.mspt,
-            cpuUsage: metrics.cpu_usage,
-            targetTickrate: metrics.target_tickrate,
-            hostileMobcap: metrics.hostile_mobcap,
-            lastSeenAt: new Date(),
-          })
-          .where(eq(servers.id, serverId));
+      // Only touch a snapshot column when the field was actually present in
+      // this payload — a field missing entirely (Spark/Carpet not loaded)
+      // should leave the last-known value on servers alone, not null it out.
+      // An explicit `null` (loaded, but this particular reading unavailable
+      // this tick) does still overwrite, since that's a real observation.
+      const snapshotUpdates: Partial<typeof servers.$inferInsert> = { lastSeenAt: new Date() };
+      if (metrics.tps_10s !== undefined) snapshotUpdates.tps10s = metrics.tps_10s;
+      if (metrics.mspt_10s !== undefined) snapshotUpdates.mspt10s = metrics.mspt_10s;
+      if (metrics.cpu_process_10s !== undefined) snapshotUpdates.cpuProcess10s = metrics.cpu_process_10s;
+      if (metrics.cpu_system_10s !== undefined) snapshotUpdates.cpuSystem10s = metrics.cpu_system_10s;
+      if (metrics.hostile_mobcap_overworld !== undefined) {
+        snapshotUpdates.hostileMobcapOverworld = metrics.hostile_mobcap_overworld;
+      }
 
+      await fastify.db.transaction(async (tx) => {
+        await tx.update(servers).set(snapshotUpdates).where(eq(servers.id, serverId));
+
+        // Unlike the snapshot, the history row always records this ping as-is
+        // (missing/null both become NULL) — there's no "leave unchanged" for
+        // a freshly inserted row.
         await tx.insert(serverMetrics).values({
           serverId,
-          tps: metrics.tps,
-          mspt: metrics.mspt,
-          cpuUsage: metrics.cpu_usage,
-          targetTickrate: metrics.target_tickrate,
-          hostileMobcap: metrics.hostile_mobcap,
+          tps10s: metrics.tps_10s ?? null,
+          mspt10s: metrics.mspt_10s ?? null,
+          cpuProcess10s: metrics.cpu_process_10s ?? null,
+          cpuSystem10s: metrics.cpu_system_10s ?? null,
+          hostileMobcapOverworld: metrics.hostile_mobcap_overworld ?? null,
         });
       });
 

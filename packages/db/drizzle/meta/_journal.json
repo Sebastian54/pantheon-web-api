@@ -78,6 +78,13 @@
       "when": 1786545354892,
       "tag": "0010_striped_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786546563314,
+      "tag": "0011_wealthy_sunfire",
+      "breakpoints": true
     }
   ]
 }
