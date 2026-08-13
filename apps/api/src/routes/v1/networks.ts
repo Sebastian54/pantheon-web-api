@@ -1,14 +1,34 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
-import { networks, networkMembers, servers, serverAccessGrants, playerSessions, players, commandSpyLogs } from "@pantheon/db";
+import { and, desc, eq, gt, gte, ilike, inArray, lte, sql } from "drizzle-orm";
+import {
+  networks,
+  networkMembers,
+  servers,
+  serverAccessGrants,
+  playerSessions,
+  players,
+  commandSpyLogs,
+  aitTardises,
+  aitLogs,
+  ledgerBlockLogs,
+  antiDupeEvents,
+  griefLoggerEvents,
+} from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
   apiErrorSchema,
   createNetworkBodySchema,
   linkServerBodySchema,
   linkServerResponseSchema,
+  networkAitLogListResponseSchema,
+  networkAitLogQuerySchema,
+  networkAntiDupeListResponseSchema,
   networkCommandSpyLogsListResponseSchema,
+  networkGriefLoggerListResponseSchema,
+  networkGriefLoggerQuerySchema,
   networkIdParamsSchema,
+  networkLedgerListResponseSchema,
+  networkLedgerQuerySchema,
   networkPlayerSessionsListResponseSchema,
   networkPlaytimeLeaderboardResponseSchema,
   networkResponseSchema,
@@ -16,6 +36,9 @@ import {
   networkServerSummarySchema,
   networkServersListResponseSchema,
   networksListResponseSchema,
+  networkTardisDetailSchema,
+  networkTardisListResponseSchema,
+  networkTardisParamsSchema,
   noContentResponseSchema,
   renameServerBodySchema,
 } from "../../schemas/networks.schema";
@@ -316,6 +339,416 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         command: row.command,
         occurredAt: row.occurredAt.toISOString(),
         serverUuid: row.serverUuid,
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/tardises",
+    {
+      // Same visibility rule as the routes above.
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 200: networkTardisListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      const tardises = await fastify.db.query.aitTardises.findMany({
+        where: inArray(aitTardises.serverId, visibleServerIds),
+      });
+
+      return tardises.map((tardis) => ({
+        uuid: tardis.uuid,
+        name: tardis.name,
+        owner: tardis.owner,
+        ownerUuid: tardis.ownerUuid,
+        fuel: tardis.fuel,
+        maxFuel: tardis.maxFuel,
+        powered: tardis.powered,
+        locked: tardis.locked,
+        travelState: tardis.travelState,
+        doorState: tardis.doorState,
+        dimension: tardis.dimension,
+        x: tardis.x,
+        y: tardis.y,
+        z: tardis.z,
+        crewCount: Array.isArray(tardis.crew) ? tardis.crew.length : 0,
+        updatedAt: tardis.updatedAt.toISOString(),
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/tardises/:tardisUuid",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkTardisParamsSchema,
+        response: { 200: networkTardisDetailSchema, 404: apiErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const { networkId, tardisUuid } = request.params;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      const tardis = await fastify.db.query.aitTardises.findFirst({
+        where: eq(aitTardises.uuid, tardisUuid),
+      });
+
+      if (!tardis || !visibleServerIds.includes(tardis.serverId)) {
+        return reply.code(404).send({ error: "Not Found", message: "TARDIS not found in this network" });
+      }
+
+      return reply.code(200).send({
+        uuid: tardis.uuid,
+        name: tardis.name,
+        owner: tardis.owner,
+        ownerUuid: tardis.ownerUuid,
+        fuel: tardis.fuel,
+        maxFuel: tardis.maxFuel,
+        powered: tardis.powered,
+        locked: tardis.locked,
+        travelState: tardis.travelState,
+        doorState: tardis.doorState,
+        dimension: tardis.dimension,
+        x: tardis.x,
+        y: tardis.y,
+        z: tardis.z,
+        crew: Array.isArray(tardis.crew) ? (tardis.crew as Record<string, unknown>[]) : [],
+        subsystems: Array.isArray(tardis.subsystems)
+          ? (tardis.subsystems as { name: string; enabled: boolean; fitted: boolean }[])
+          : [],
+        updatedAt: tardis.updatedAt.toISOString(),
+      });
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/ait-log",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        querystring: networkAitLogQuerySchema,
+        response: { 200: networkAitLogListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { tardis, player, action, category, result, after, before, contains, page, limit } = request.query;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      const conditions = [inArray(aitLogs.serverId, visibleServerIds)];
+      if (tardis) conditions.push(ilike(aitLogs.tardisId, tardis));
+      if (player) conditions.push(ilike(aitLogs.playerName, player));
+      if (action) conditions.push(ilike(aitLogs.action, action));
+      if (category) conditions.push(ilike(aitLogs.category, category));
+      if (result) conditions.push(ilike(aitLogs.result, result));
+      if (contains) conditions.push(ilike(aitLogs.detail, `%${contains}%`));
+      if (after) conditions.push(gte(aitLogs.occurredAt, new Date(after)));
+      if (before) conditions.push(lte(aitLogs.occurredAt, new Date(before)));
+
+      const rows = await fastify.db
+        .select()
+        .from(aitLogs)
+        .where(and(...conditions))
+        .orderBy(desc(aitLogs.occurredAt))
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        clientLogId: row.clientLogId,
+        tardisId: row.tardisId,
+        playerUuid: row.playerUuid,
+        playerName: row.playerName,
+        category: row.category,
+        action: row.action,
+        result: row.result,
+        fromDim: row.fromDim,
+        fromX: row.fromX,
+        fromY: row.fromY,
+        fromZ: row.fromZ,
+        toDim: row.toDim,
+        toX: row.toX,
+        toY: row.toY,
+        toZ: row.toZ,
+        detail: row.detail,
+        occurredAt: row.occurredAt.toISOString(),
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/ledger",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        querystring: networkLedgerQuerySchema,
+        response: { 200: networkLedgerListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { player, action, world, object, source, rolledBack, after, before, page, limit } = request.query;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      const conditions = [inArray(ledgerBlockLogs.serverId, visibleServerIds)];
+      if (player) conditions.push(ilike(ledgerBlockLogs.playerName, player));
+      if (action) conditions.push(ilike(ledgerBlockLogs.action, action));
+      if (world) conditions.push(ilike(ledgerBlockLogs.world, world));
+      if (object) conditions.push(ilike(ledgerBlockLogs.object, `%${object}%`));
+      if (source) conditions.push(ilike(ledgerBlockLogs.source, source));
+      if (rolledBack !== undefined) conditions.push(eq(ledgerBlockLogs.rolledBack, rolledBack));
+      if (after) conditions.push(gte(ledgerBlockLogs.occurredAt, new Date(after)));
+      if (before) conditions.push(lte(ledgerBlockLogs.occurredAt, new Date(before)));
+
+      const rows = await fastify.db
+        .select()
+        .from(ledgerBlockLogs)
+        .where(and(...conditions))
+        .orderBy(desc(ledgerBlockLogs.occurredAt))
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        clientLogId: row.clientLogId,
+        action: row.action,
+        world: row.world,
+        x: row.x,
+        y: row.y,
+        z: row.z,
+        object: row.object,
+        oldObject: row.oldObject,
+        blockState: row.blockState,
+        oldBlockState: row.oldBlockState,
+        source: row.source,
+        playerName: row.playerName,
+        playerUuid: row.playerUuid,
+        extraData: row.extraData,
+        rolledBack: row.rolledBack,
+        occurredAt: row.occurredAt.toISOString(),
+      }));
+    },
+  );
+
+  // Copied exactly from the legacy webadmin-main AntiDupeSource.FLAGGING —
+  // these two action names mark a TARDIS as creative-placed; any other
+  // action (e.g. clearing the flag) means it's no longer flagged.
+  const ANTI_DUPE_FLAGGING_ACTIONS = new Set(["PLACED_IN_CREATIVE", "SET_CREATIVE"]);
+
+  fastify.get(
+    "/networks/:networkId/antidupe",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 200: networkAntiDupeListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      // The latest event per tardis_uuid decides its current flag state —
+      // DISTINCT ON with a matching ORDER BY is Postgres's idiom for this.
+      const latestPerTardis = await fastify.db
+        .selectDistinctOn([antiDupeEvents.tardisUuid], {
+          tardisUuid: antiDupeEvents.tardisUuid,
+          action: antiDupeEvents.action,
+          actor: antiDupeEvents.actor,
+          occurredAt: antiDupeEvents.occurredAt,
+        })
+        .from(antiDupeEvents)
+        .where(inArray(antiDupeEvents.serverId, visibleServerIds))
+        .orderBy(antiDupeEvents.tardisUuid, desc(antiDupeEvents.occurredAt));
+
+      return latestPerTardis.map((row) => ({
+        tardisUuid: row.tardisUuid,
+        creative: ANTI_DUPE_FLAGGING_ACTIONS.has(row.action.toUpperCase()),
+        since: row.occurredAt.toISOString(),
+        actor: row.actor,
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/grieflogger",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        querystring: networkGriefLoggerQuerySchema,
+        response: { 200: networkGriefLoggerListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { kind, player, contains, after, before, page, limit } = request.query;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      const conditions = [inArray(griefLoggerEvents.serverId, visibleServerIds), eq(griefLoggerEvents.kind, kind)];
+      if (player) conditions.push(ilike(griefLoggerEvents.playerName, player));
+      if (contains) {
+        // Target column depends on kind, mirroring GriefLoggerSource.whereFor
+        // exactly: chats searches the message text, everything else searches
+        // the block/item/container type identifier.
+        const searchColumn = kind === "chats" ? griefLoggerEvents.message : griefLoggerEvents.type;
+        conditions.push(ilike(searchColumn, `%${contains}%`));
+      }
+      if (after) conditions.push(gte(griefLoggerEvents.occurredAt, new Date(after)));
+      if (before) conditions.push(lte(griefLoggerEvents.occurredAt, new Date(before)));
+
+      const rows = await fastify.db
+        .select()
+        .from(griefLoggerEvents)
+        .where(and(...conditions))
+        .orderBy(desc(griefLoggerEvents.occurredAt))
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        kind: row.kind as "blocks" | "items" | "containers" | "chats",
+        playerName: row.playerName,
+        playerUuid: row.playerUuid,
+        world: row.world,
+        x: row.x,
+        y: row.y,
+        z: row.z,
+        type: row.type,
+        action: row.action,
+        amount: row.amount,
+        message: row.message,
+        occurredAt: row.occurredAt.toISOString(),
       }));
     },
   );

@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   doublePrecision,
   index,
@@ -447,6 +448,241 @@ export const playerSessions = pgTable(
 );
 
 // ==============================================================================
+// Adventures in Time (AIT) — live TARDIS fleet, ported from the legacy
+// webadmin-main dashboard's TardisDataSource. Current-state snapshot (mc-mod
+// POSTs the whole fleet periodically, upserted by uuid), not an append-only
+// log — a regular table, not a hypertable. Every column but the identity
+// fields is nullable despite the ingestion schema requiring them: the legacy
+// source's own extensive comments explain why — AIT is a mod under active
+// development with an undocumented save format, and a renamed/dropped field
+// should degrade a column to null rather than break ingestion outright.
+// Rows are pure upsert, never deleted when a TARDIS stops appearing in a
+// later snapshot (e.g. destroyed) — they just go stale. crew/subsystems are
+// jsonb rather than normalized tables since nothing needs to query into them
+// independently, only display them on a single TARDIS's detail view.
+// ==============================================================================
+
+export const aitTardises = pgTable(
+  "ait_tardises",
+  {
+    uuid: uuid("uuid").primaryKey(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    name: varchar("name", { length: 128 }),
+    owner: varchar("owner", { length: 64 }),
+    // Absent from the legacy webadmin's data entirely ("there is no creator
+    // uuid in the file" per TardisDataSource's own comment) — optional here
+    // since the new mc-mod ingestion path may have better data than the old
+    // file-scraper did, but can't be assumed to.
+    ownerUuid: uuid("owner_uuid"),
+
+    fuel: doublePrecision("fuel"),
+    maxFuel: doublePrecision("max_fuel"),
+    powered: boolean("powered"),
+    locked: boolean("locked"),
+
+    // Free-form strings, not enums — AIT's own state names, not something
+    // this API should constrain to a guessed value list.
+    travelState: varchar("travel_state", { length: 32 }),
+    doorState: varchar("door_state", { length: 32 }),
+
+    dimension: varchar("dimension", { length: 128 }),
+    // Block coordinates — confirmed Integer in AIT's own data (TardisDataSource.Location),
+    // not fractional.
+    x: integer("x"),
+    y: integer("y"),
+    z: integer("z"),
+
+    crew: jsonb("crew"),
+    subsystems: jsonb("subsystems"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => ({
+    serverIdx: index("ait_tardises_server_idx").on(table.serverId),
+  }),
+);
+
+// AIT's TARDIS console log — a hypertable (occurredAt-partitioned), same
+// shape as command_spy_logs, ported from the legacy webadmin-main
+// AitLogSource. Append-only, insert-only — no dedupe constraint on the
+// mod's own row id (clientLogId), matching command_spy_logs' precedent: an
+// occasional duplicate row on a client-side retry is harmless, and that id
+// isn't even unique across servers to begin with. Every field but the
+// identity/category/action ones is nullable — confirmed directly from
+// AitLogSource.java: e.g. from_*/to_* location fields are only populated for
+// travel-related actions ("only take-offs carry both ends").
+export const aitLogs = pgTable(
+  "ait_logs",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    // aitlog's own row id (a Java long) — not globally unique across
+    // servers, kept only for cross-referencing a specific batch.
+    clientLogId: bigint("client_log_id", { mode: "number" }).notNull(),
+
+    tardisId: varchar("tardis_id", { length: 64 }).notNull(),
+    playerUuid: uuid("player_uuid"),
+    playerName: varchar("player_name", { length: 64 }).notNull(),
+    category: varchar("category", { length: 64 }).notNull(),
+    action: varchar("action", { length: 64 }).notNull(),
+    result: varchar("result", { length: 64 }),
+
+    fromDim: varchar("from_dim", { length: 128 }),
+    fromX: integer("from_x"),
+    fromY: integer("from_y"),
+    fromZ: integer("from_z"),
+    toDim: varchar("to_dim", { length: 128 }),
+    toX: integer("to_x"),
+    toY: integer("to_y"),
+    toZ: integer("to_z"),
+
+    detail: text("detail"),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.id, table.occurredAt] }),
+    serverOccurredIdx: index("ait_logs_server_occurred_idx").on(table.serverId, table.occurredAt),
+  }),
+);
+
+// Ledger's full block/grief change log — a hypertable, ported from the
+// legacy webadmin-main LedgerSource (POST /api/v1/telemetry/ledger).
+// Deliberately a separate table from the pre-existing ledgerLogs/
+// POST /api/v1/ledger (a different, unrelated route) — that table was built
+// speculatively early on, before any real Ledger plugin schema was ever
+// verified against source; this one's field list and nullability are
+// confirmed directly against LedgerSource.Row. x/y/z/action/world/object/
+// source are always present (Ledger's own row can't exist without them);
+// old_object/block_state/old_block_state/player_name/player_uuid/extra_data
+// are nullable — LEFT JOINed in the legacy reader, since e.g. an
+// environmental action (fire, an explosion, a piston) has no player at all.
+export const ledgerBlockLogs = pgTable(
+  "ledger_block_logs",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    // Ledger's own row id (a Java long) — not globally unique across
+    // servers, kept only for cross-referencing a specific batch.
+    clientLogId: bigint("client_log_id", { mode: "number" }).notNull(),
+
+    action: varchar("action", { length: 64 }).notNull(),
+    world: varchar("world", { length: 64 }).notNull(),
+    x: integer("x").notNull(),
+    y: integer("y").notNull(),
+    z: integer("z").notNull(),
+
+    object: varchar("object", { length: 128 }).notNull(),
+    oldObject: varchar("old_object", { length: 128 }),
+    blockState: text("block_state"),
+    oldBlockState: text("old_block_state"),
+
+    // What caused it — "player", "fire", "explosion", etc, not who.
+    source: varchar("source", { length: 64 }).notNull(),
+    playerName: varchar("player_name", { length: 64 }),
+    playerUuid: uuid("player_uuid"),
+
+    extraData: text("extra_data"),
+    rolledBack: boolean("rolled_back").notNull().default(false),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.id, table.occurredAt] }),
+    serverOccurredIdx: index("ledger_block_logs_server_occurred_idx").on(
+      table.serverId,
+      table.occurredAt,
+    ),
+  }),
+);
+
+// ait-antidupe's creative-TARDIS flag log, ported from the legacy
+// webadmin-main AntiDupeSource — a plain, small table, not a hypertable
+// (low volume: "a handful of lines a week on a busy server" per that
+// source's own comment). Insert-only, no dedupe constraint, matching
+// command_spy_logs' precedent. Whether a TARDIS is "currently creative" is
+// derived at read time from its latest event's action, not stored directly
+// — see the FLAGGING action-name list in routes/v1/networks.ts, copied
+// exactly from AntiDupeSource.FLAGGING.
+export const antiDupeEvents = pgTable(
+  "anti_dupe_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    tardisUuid: uuid("tardis_uuid").notNull(),
+    action: varchar("action", { length: 32 }).notNull(),
+    actor: varchar("actor", { length: 64 }).notNull(),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    serverIdx: index("anti_dupe_events_server_idx").on(table.serverId),
+    tardisIdx: index("anti_dupe_events_tardis_idx").on(table.tardisUuid),
+  }),
+);
+
+// The legacy GriefLogger archive — a hypertable, ported from webadmin-main's
+// GriefLoggerSource. Confirmed low-priority/opt-in (unlike the other four
+// sources, this one required manual path config in the legacy dashboard —
+// there's no auto-discovery). `kind` discriminates between the four record
+// types GriefLoggerSource.KINDS covers; type/action are null for chats,
+// amount only applies to items/containers, message only to chats — same
+// nullability GriefLoggerSource.selectFor's per-kind SELECT produces.
+// player/playerUuid are nullable here even though the legacy reader's own
+// INNER JOIN made them always-present: the new mc-mod ingestion path may
+// source this differently, so this doesn't assume that guarantee holds.
+export const griefLoggerEvents = pgTable(
+  "grief_logger_events",
+  {
+    id: uuid("id").notNull().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    kind: varchar("kind", { length: 16 }).notNull(),
+
+    playerName: varchar("player_name", { length: 64 }),
+    playerUuid: uuid("player_uuid"),
+    world: varchar("world", { length: 64 }).notNull(),
+    x: integer("x").notNull(),
+    y: integer("y").notNull(),
+    z: integer("z").notNull(),
+
+    type: varchar("type", { length: 128 }),
+    action: varchar("action", { length: 32 }),
+    amount: integer("amount"),
+    message: text("message"),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.id, table.occurredAt] }),
+    serverKindOccurredIdx: index("grief_logger_events_server_kind_occurred_idx").on(
+      table.serverId,
+      table.kind,
+      table.occurredAt,
+    ),
+  }),
+);
+
+// ==============================================================================
 // Relations (drizzle-orm query API)
 // ==============================================================================
 
@@ -485,6 +721,11 @@ export const serversRelations = relations(servers, ({ one, many }) => ({
   blockLogs: many(blockLogs),
   serverMetrics: many(serverMetrics),
   playerSessions: many(playerSessions),
+  aitTardises: many(aitTardises),
+  aitLogs: many(aitLogs),
+  ledgerBlockLogs: many(ledgerBlockLogs),
+  antiDupeEvents: many(antiDupeEvents),
+  griefLoggerEvents: many(griefLoggerEvents),
 }));
 
 export const serverAccessGrantsRelations = relations(serverAccessGrants, ({ one }) => ({
@@ -518,4 +759,24 @@ export const playersRelations = relations(players, ({ many }) => ({
 export const playerSessionsRelations = relations(playerSessions, ({ one }) => ({
   player: one(players, { fields: [playerSessions.playerUuid], references: [players.uuid] }),
   server: one(servers, { fields: [playerSessions.serverUuid], references: [servers.serverUuid] }),
+}));
+
+export const aitTardisesRelations = relations(aitTardises, ({ one }) => ({
+  server: one(servers, { fields: [aitTardises.serverId], references: [servers.id] }),
+}));
+
+export const aitLogsRelations = relations(aitLogs, ({ one }) => ({
+  server: one(servers, { fields: [aitLogs.serverId], references: [servers.id] }),
+}));
+
+export const ledgerBlockLogsRelations = relations(ledgerBlockLogs, ({ one }) => ({
+  server: one(servers, { fields: [ledgerBlockLogs.serverId], references: [servers.id] }),
+}));
+
+export const antiDupeEventsRelations = relations(antiDupeEvents, ({ one }) => ({
+  server: one(servers, { fields: [antiDupeEvents.serverId], references: [servers.id] }),
+}));
+
+export const griefLoggerEventsRelations = relations(griefLoggerEvents, ({ one }) => ({
+  server: one(servers, { fields: [griefLoggerEvents.serverId], references: [servers.id] }),
 }));

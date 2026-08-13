@@ -20,6 +20,11 @@ import heartbeatRoute from "./routes/v1/heartbeat";
 import telemetryRoute from "./routes/v1/telemetry";
 import telemetryMetricsRoute from "./routes/v1/telemetry-metrics";
 import telemetryPlayersRoute from "./routes/v1/telemetry-players";
+import telemetryAitFleetRoute from "./routes/v1/telemetry-ait-fleet";
+import telemetryAitLogRoute from "./routes/v1/telemetry-ait-log";
+import telemetryLedgerRoute from "./routes/v1/telemetry-ledger";
+import telemetryAntiDupeRoute from "./routes/v1/telemetry-antidupe";
+import telemetryGriefLoggerRoute from "./routes/v1/telemetry-grieflogger";
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -65,6 +70,11 @@ export async function buildApp() {
   await fastify.register(telemetryRoute, { prefix: "/api/v1" });
   await fastify.register(telemetryMetricsRoute, { prefix: "/api/v1" });
   await fastify.register(telemetryPlayersRoute, { prefix: "/api/v1" });
+  await fastify.register(telemetryAitFleetRoute, { prefix: "/api/v1" });
+  await fastify.register(telemetryAitLogRoute, { prefix: "/api/v1" });
+  await fastify.register(telemetryLedgerRoute, { prefix: "/api/v1" });
+  await fastify.register(telemetryAntiDupeRoute, { prefix: "/api/v1" });
+  await fastify.register(telemetryGriefLoggerRoute, { prefix: "/api/v1" });
 
   return fastify;
 }

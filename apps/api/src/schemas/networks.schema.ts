@@ -132,3 +132,178 @@ export const networkCommandSpyLogSchema = z.object({
 });
 
 export const networkCommandSpyLogsListResponseSchema = z.array(networkCommandSpyLogSchema);
+
+// Every column but the identity fields is nullable — see
+// packages/db/src/schema.ts's ait_tardises comment for why (AIT's save
+// format isn't something to assume is always fully populated).
+const aitTardisCoreFields = {
+  uuid: z.string().uuid(),
+  name: z.string().nullable(),
+  owner: z.string().nullable(),
+  ownerUuid: z.string().uuid().nullable(),
+  fuel: z.number().nullable(),
+  maxFuel: z.number().nullable(),
+  powered: z.boolean().nullable(),
+  locked: z.boolean().nullable(),
+  travelState: z.string().nullable(),
+  doorState: z.string().nullable(),
+  dimension: z.string().nullable(),
+  x: z.number().int().nullable(),
+  y: z.number().int().nullable(),
+  z: z.number().int().nullable(),
+  updatedAt: z.string(),
+};
+
+export const networkTardisSummarySchema = z.object({
+  ...aitTardisCoreFields,
+  crewCount: z.number().int(),
+});
+
+export const networkTardisListResponseSchema = z.array(networkTardisSummarySchema);
+
+// Crew/subsystem shapes aren't rigidly typed here — crew's exact fields
+// depend on what the mod actually sends (see telemetry-ait-fleet.schema.ts's
+// comment), and both are stored as jsonb passthrough rather than a schema
+// this API asserts it fully understands.
+export const networkTardisDetailSchema = z.object({
+  ...aitTardisCoreFields,
+  crew: z.array(z.record(z.unknown())),
+  subsystems: z.array(z.object({ name: z.string(), enabled: z.boolean(), fitted: z.boolean() })),
+});
+
+export const networkTardisParamsSchema = z.object({
+  networkId: z.string().uuid(),
+  tardisUuid: z.string().uuid(),
+});
+
+// tardis/player/action/category/result are exact (case-insensitive) matches,
+// contains is a substring search on detail only — mirrors the legacy
+// webadmin-main AitLogSource's own filter semantics exactly (appendExact for
+// the first five, no substring support there at all besides what this API
+// adds for detail). Query string values always arrive as strings; z.coerce
+// turns page/limit into numbers.
+export const networkAitLogQuerySchema = z.object({
+  tardis: z.string().min(1).optional(),
+  player: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  result: z.string().min(1).optional(),
+  after: z.string().datetime().optional(),
+  before: z.string().datetime().optional(),
+  contains: z.string().min(1).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const networkAitLogEntrySchema = z.object({
+  id: z.string().uuid(),
+  clientLogId: z.number().int(),
+  tardisId: z.string(),
+  playerUuid: z.string().uuid().nullable(),
+  playerName: z.string(),
+  category: z.string(),
+  action: z.string(),
+  result: z.string().nullable(),
+  fromDim: z.string().nullable(),
+  fromX: z.number().int().nullable(),
+  fromY: z.number().int().nullable(),
+  fromZ: z.number().int().nullable(),
+  toDim: z.string().nullable(),
+  toX: z.number().int().nullable(),
+  toY: z.number().int().nullable(),
+  toZ: z.number().int().nullable(),
+  detail: z.string().nullable(),
+  occurredAt: z.string(),
+});
+
+export const networkAitLogListResponseSchema = z.array(networkAitLogEntrySchema);
+
+// player/action/world/source are exact (case-insensitive) matches; object is
+// a substring search — mirrors the legacy webadmin-main LedgerSource's own
+// filter semantics exactly (appendExact for the first four, appendLike for
+// object). Deliberately NOT z.coerce.boolean() for rolledBack: Zod's coerce
+// just calls Boolean(value), so the literal string "false" would coerce to
+// true (any non-empty string is truthy) — this maps the two real query
+// values explicitly instead.
+export const networkLedgerQuerySchema = z.object({
+  player: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
+  world: z.string().min(1).optional(),
+  object: z.string().min(1).optional(),
+  source: z.string().min(1).optional(),
+  rolledBack: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
+  after: z.string().datetime().optional(),
+  before: z.string().datetime().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const networkLedgerEntrySchema = z.object({
+  id: z.string().uuid(),
+  clientLogId: z.number().int(),
+  action: z.string(),
+  world: z.string(),
+  x: z.number().int(),
+  y: z.number().int(),
+  z: z.number().int(),
+  object: z.string(),
+  oldObject: z.string().nullable(),
+  blockState: z.string().nullable(),
+  oldBlockState: z.string().nullable(),
+  source: z.string(),
+  playerName: z.string().nullable(),
+  playerUuid: z.string().uuid().nullable(),
+  extraData: z.string().nullable(),
+  rolledBack: z.boolean(),
+  occurredAt: z.string(),
+});
+
+export const networkLedgerListResponseSchema = z.array(networkLedgerEntrySchema);
+
+// Current derived state, not raw events — the useful view here is "who's
+// flagged right now," computed from each TARDIS's latest anti_dupe_events
+// row (see routes/v1/networks.ts's FLAGGING constant).
+export const networkAntiDupeFlagSchema = z.object({
+  tardisUuid: z.string().uuid(),
+  creative: z.boolean(),
+  since: z.string(),
+  actor: z.string(),
+});
+
+export const networkAntiDupeListResponseSchema = z.array(networkAntiDupeFlagSchema);
+
+const networkGriefLoggerKindSchema = z.enum(["blocks", "items", "containers", "chats"]);
+
+// player is an exact (case-insensitive) match; contains is a substring
+// search whose TARGET COLUMN depends on kind — message for chats, type for
+// everything else — mirroring GriefLoggerSource.whereFor exactly.
+export const networkGriefLoggerQuerySchema = z.object({
+  kind: networkGriefLoggerKindSchema.default("blocks"),
+  player: z.string().min(1).optional(),
+  contains: z.string().min(1).optional(),
+  after: z.string().datetime().optional(),
+  before: z.string().datetime().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const networkGriefLoggerEntrySchema = z.object({
+  id: z.string().uuid(),
+  kind: networkGriefLoggerKindSchema,
+  playerName: z.string().nullable(),
+  playerUuid: z.string().uuid().nullable(),
+  world: z.string(),
+  x: z.number().int(),
+  y: z.number().int(),
+  z: z.number().int(),
+  type: z.string().nullable(),
+  action: z.string().nullable(),
+  amount: z.number().int().nullable(),
+  message: z.string().nullable(),
+  occurredAt: z.string(),
+});
+
+export const networkGriefLoggerListResponseSchema = z.array(networkGriefLoggerEntrySchema);
