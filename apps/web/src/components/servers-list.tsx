@@ -1,16 +1,11 @@
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { isServerOnline } from "@/lib/format";
 import type { ServerSummary } from "@/lib/servers";
 
-function formatLastSeen(lastSeenAt: Date | null) {
-  if (!lastSeenAt) return "Never";
-
-  const minutes = Math.floor((Date.now() - lastSeenAt.getTime()) / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+function capitalize(value: string) {
+  return value.charAt(0) + value.slice(1).toLowerCase();
 }
 
 export function ServersList({ servers }: { servers: ServerSummary[] }) {
@@ -29,25 +24,36 @@ export function ServersList({ servers }: { servers: ServerSummary[] }) {
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {servers.map((server) => (
-        <Card key={server.id} className="glass-panel">
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="truncate">{server.name}</CardTitle>
-              <Badge variant={server.isActive ? "success" : "secondary"}>
-                {server.isActive ? "Active" : "Inactive"}
-              </Badge>
-            </div>
-            <CardDescription>
-              {server.loaderType} &middot; {server.mcVersion}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1 text-sm text-muted-foreground">
-            <p>Last seen: {formatLastSeen(server.lastSeenAt)}</p>
-            <p className="truncate font-mono text-xs">{server.serverUuid}</p>
-          </CardContent>
-        </Card>
-      ))}
+      {servers.map((server) => {
+        const online = isServerOnline(server.lastSeenAt);
+        return (
+          <Link key={server.id} href={`/servers/${server.id}`}>
+            <Card className="glass-panel h-full transition-colors hover:bg-white/15 dark:hover:bg-white/10">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="truncate">{server.name}</CardTitle>
+                  <Badge variant={online ? "success" : "secondary"}>
+                    {online ? "Online" : "Offline"}
+                  </Badge>
+                </div>
+                <CardDescription>
+                  {capitalize(server.loaderType)} &middot; {server.mcVersion}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="text-sm">
+                {online ? (
+                  <p className="text-muted-foreground">
+                    Players: {server.playerCount}/{server.maxPlayers} &bull; TPS:{" "}
+                    {server.tps.toFixed(1)}
+                  </p>
+                ) : (
+                  <p className="font-semibold text-destructive">Offline</p>
+                )}
+              </CardContent>
+            </Card>
+          </Link>
+        );
+      })}
     </div>
   );
 }

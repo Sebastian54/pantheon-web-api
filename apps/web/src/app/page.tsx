@@ -3,12 +3,14 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { getServersForUser } from "@/lib/servers";
-import { createNetwork } from "./actions";
+import { createNetwork, linkServer } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ServersList } from "@/components/servers-list";
+import { DeleteNetworkButton } from "@/components/delete-network-button";
+import { VersionFooter } from "@/components/version-footer";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -78,10 +80,50 @@ export default async function DashboardPage() {
         </div>
       </header>
 
+      {canManageAccess && (
+        <section className="space-y-4">
+          <h2 className="text-lg font-medium">Networks</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {session.user.networks
+              .filter((network) => network.role === "OWNER" || network.role === "ADMIN")
+              .map((network) => (
+                <Card key={network.id} className="glass-panel">
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="truncate">{network.name}</CardTitle>
+                      {network.role === "OWNER" && (
+                        <DeleteNetworkButton networkId={network.id} networkName={network.name} />
+                      )}
+                    </div>
+                    <CardDescription>Your role: {network.role}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form action={linkServer.bind(null, network.id)} className="flex items-center gap-2">
+                      <input
+                        name="linkCode"
+                        placeholder="Link code (e.g. C8R2-WGQE)"
+                        required
+                        className="h-9 flex-1 rounded-full border border-input bg-background px-3 text-sm text-foreground"
+                      />
+                      <Button type="submit" variant="secondary" size="sm">
+                        Link server
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              ))}
+          </div>
+        </section>
+      )}
+
       <section>
         <h2 className="mb-4 text-lg font-medium">Servers</h2>
         <ServersList servers={servers} />
       </section>
+
+      <footer className="pt-4">
+        <VersionFooter className="text-xs text-muted-foreground/25" />
+      </footer>
     </main>
   );
 }

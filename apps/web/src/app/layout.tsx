@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
+import { TopNav } from "@/components/top-nav";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen bg-background font-sans antialiased">
-        <AuthSessionProvider>{children}</AuthSessionProvider>
+        <AuthSessionProvider>
+          <TopNav />
+          {children}
+        </AuthSessionProvider>
       </body>
     </html>
   );
