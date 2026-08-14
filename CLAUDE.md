@@ -24,6 +24,7 @@ The frontend must strictly adhere to Apple's Liquid Glass UI (macOS Tahoe / iOS 
 ## Security & Development Rules
 1.  **Strict `.gitignore` Policy:** Sensitive data must never be committed. The `.gitignore` must strictly block `.env`, `.env.local`, `.env.*`, all API keys, database URLs, and TLS/SSL certs.
 2.  **API Batching:** Fastify routes handling high-volume data (Command Spy, Ledger) must expect and validate batch JSON arrays.
+3.  **Versioning:** Root `package.json`'s `version` field (currently `1.0.0`) is the single source of truth for `GET /api/v1/version`, an unauthenticated endpoint consumed by the iOS app's Settings/Networks screens and the mc-mod's `/pantheon version` command — it reads this file at runtime, nothing hardcodes a duplicate. Standing policy as of 2026-08-14: bump the patch number (the third one) by one on every commit/push to `main`. Never bump major or minor without Sebastian explicitly asking. This applies only to root `package.json` — `apps/api`, `apps/web`, and `packages/db` each carry their own independent (currently stale, unrelated) `version` field that this policy doesn't touch.
 
 ## Deployment & Infrastructure Rules
 *   **Host Environment:** Self-hosted Proxmox VE server.

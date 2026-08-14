@@ -25,6 +25,7 @@ import telemetryAitLogRoute from "./routes/v1/telemetry-ait-log";
 import telemetryLedgerRoute from "./routes/v1/telemetry-ledger";
 import telemetryAntiDupeRoute from "./routes/v1/telemetry-antidupe";
 import telemetryGriefLoggerRoute from "./routes/v1/telemetry-grieflogger";
+import versionRoute from "./routes/v1/version";
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -75,6 +76,7 @@ export async function buildApp() {
   await fastify.register(telemetryLedgerRoute, { prefix: "/api/v1" });
   await fastify.register(telemetryAntiDupeRoute, { prefix: "/api/v1" });
   await fastify.register(telemetryGriefLoggerRoute, { prefix: "/api/v1" });
+  await fastify.register(versionRoute, { prefix: "/api/v1" });
 
   return fastify;
 }

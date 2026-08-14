@@ -441,6 +441,32 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         return reply.code(404).send({ error: "Not Found", message: "TARDIS not found in this network" });
       }
 
+      // AIT's own crew/loyalty data has no player name at all (confirmed with
+      // mc-mod — it's not in the source file format), only a uuid. Rather than
+      // have the client resolve names via Mojang's API (an external dependency
+      // that would leak crew UUIDs to a third party for something resolvable
+      // internally), enrich each crew member with a username here whenever
+      // that uuid has shown up in players (Plan-tracked sessions populate that
+      // table already) — a pure enhancement, null when never Plan-tracked, the
+      // client already falls back to a truncated uuid for that case.
+      const crewArray = Array.isArray(tardis.crew) ? (tardis.crew as Record<string, unknown>[]) : [];
+      const crewUuids = crewArray
+        .map((member) => member.uuid)
+        .filter((uuid): uuid is string => typeof uuid === "string");
+
+      const knownPlayers = crewUuids.length
+        ? await fastify.db.query.players.findMany({
+            where: inArray(players.uuid, crewUuids),
+            columns: { uuid: true, username: true },
+          })
+        : [];
+      const usernameByUuid = new Map(knownPlayers.map((player) => [player.uuid, player.username]));
+
+      const enrichedCrew = crewArray.map((member) => ({
+        ...member,
+        name: typeof member.uuid === "string" ? (usernameByUuid.get(member.uuid) ?? null) : null,
+      }));
+
       return reply.code(200).send({
         uuid: tardis.uuid,
         name: tardis.name,
@@ -456,7 +482,7 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         x: tardis.x,
         y: tardis.y,
         z: tardis.z,
-        crew: Array.isArray(tardis.crew) ? (tardis.crew as Record<string, unknown>[]) : [],
+        crew: enrichedCrew,
         subsystems: Array.isArray(tardis.subsystems)
           ? (tardis.subsystems as { name: string; enabled: boolean; fitted: boolean }[])
           : [],
