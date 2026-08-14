@@ -162,6 +162,13 @@
       "when": 1786660784517,
       "tag": "0022_grief_logger_events_hypertable",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786729367310,
+      "tag": "0023_smart_lightspeed",
+      "breakpoints": true
     }
   ]
 }

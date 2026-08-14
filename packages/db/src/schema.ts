@@ -682,6 +682,47 @@ export const griefLoggerEvents = pgTable(
   }),
 );
 
+// Advancement grants, from mc-mod's own PlayerAdvancements.award() Mixin (not
+// ported from webadmin-main — a new source). Plain table, low volume. Upsert
+// key is (serverId, playerUuid, advancement), NOT the peer's originally
+// suggested global (playerUuid, advancement): vanilla advancement progress is
+// genuinely per-world, so the same player can validly earn the same
+// advancement independently on two different servers — a global key would
+// silently drop the second server's legitimate grant via ON CONFLICT DO
+// NOTHING. No "keep latest" semantics needed since first-earned is permanent.
+export const advancements = pgTable(
+  "advancements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+
+    playerUuid: uuid("player_uuid").notNull(),
+    playerName: varchar("player_name", { length: 64 }).notNull(),
+    advancement: varchar("advancement", { length: 255 }).notNull(),
+    title: varchar("title", { length: 255 }),
+    // Free-form, not an enum — "task"/"goal"/"challenge" in vanilla, but not
+    // something this API should assume is exhaustive.
+    frame: varchar("frame", { length: 16 }),
+    dimension: varchar("dimension", { length: 128 }),
+    x: integer("x"),
+    y: integer("y"),
+    z: integer("z"),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    serverIdx: index("advancements_server_idx").on(table.serverId),
+    serverPlayerAdvancementUniqueIdx: uniqueIndex("advancements_server_player_advancement_unique_idx").on(
+      table.serverId,
+      table.playerUuid,
+      table.advancement,
+    ),
+  }),
+);
+
 // ==============================================================================
 // Relations (drizzle-orm query API)
 // ==============================================================================
@@ -726,6 +767,7 @@ export const serversRelations = relations(servers, ({ one, many }) => ({
   ledgerBlockLogs: many(ledgerBlockLogs),
   antiDupeEvents: many(antiDupeEvents),
   griefLoggerEvents: many(griefLoggerEvents),
+  advancements: many(advancements),
 }));
 
 export const serverAccessGrantsRelations = relations(serverAccessGrants, ({ one }) => ({
@@ -779,4 +821,8 @@ export const antiDupeEventsRelations = relations(antiDupeEvents, ({ one }) => ({
 
 export const griefLoggerEventsRelations = relations(griefLoggerEvents, ({ one }) => ({
   server: one(servers, { fields: [griefLoggerEvents.serverId], references: [servers.id] }),
+}));
+
+export const advancementsRelations = relations(advancements, ({ one }) => ({
+  server: one(servers, { fields: [advancements.serverId], references: [servers.id] }),
 }));

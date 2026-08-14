@@ -307,3 +307,29 @@ export const networkGriefLoggerEntrySchema = z.object({
 });
 
 export const networkGriefLoggerListResponseSchema = z.array(networkGriefLoggerEntrySchema);
+
+// player is an exact (case-insensitive) match on playerName; contains
+// searches BOTH the advancement id and its title (an OR, not one or the
+// other) — the peer's spec explicitly said "substring on advancement id/title".
+export const networkAdvancementsQuerySchema = z.object({
+  player: z.string().min(1).optional(),
+  contains: z.string().min(1).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const networkAdvancementEntrySchema = z.object({
+  id: z.string().uuid(),
+  playerUuid: z.string().uuid(),
+  playerName: z.string(),
+  advancement: z.string(),
+  title: z.string().nullable(),
+  frame: z.string().nullable(),
+  dimension: z.string().nullable(),
+  x: z.number().int().nullable(),
+  y: z.number().int().nullable(),
+  z: z.number().int().nullable(),
+  occurredAt: z.string(),
+});
+
+export const networkAdvancementsListResponseSchema = z.array(networkAdvancementEntrySchema);

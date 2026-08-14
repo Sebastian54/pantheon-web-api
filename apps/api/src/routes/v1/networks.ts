@@ -1,5 +1,5 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
-import { and, desc, eq, gt, gte, ilike, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import {
   networks,
   networkMembers,
@@ -13,6 +13,7 @@ import {
   ledgerBlockLogs,
   antiDupeEvents,
   griefLoggerEvents,
+  advancements,
 } from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
@@ -20,6 +21,8 @@ import {
   createNetworkBodySchema,
   linkServerBodySchema,
   linkServerResponseSchema,
+  networkAdvancementsListResponseSchema,
+  networkAdvancementsQuerySchema,
   networkAitLogListResponseSchema,
   networkAitLogQuerySchema,
   networkAntiDupeListResponseSchema,
@@ -774,6 +777,73 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         action: row.action,
         amount: row.amount,
         message: row.message,
+        occurredAt: row.occurredAt.toISOString(),
+      }));
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/advancements",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        querystring: networkAdvancementsQuerySchema,
+        response: { 200: networkAdvancementsListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+      const { player, contains, page, limit } = request.query;
+      const { userId, networkRole } = request.session!;
+
+      const visibleServerIds =
+        networkRole === "MODERATOR"
+          ? (
+              await fastify.db.query.serverAccessGrants.findMany({
+                where: eq(serverAccessGrants.userId, userId),
+                with: { server: true },
+              })
+            )
+              .map((grant) => grant.server)
+              .filter((server) => server.networkId === networkId)
+              .map((server) => server.id)
+          : (
+              await fastify.db.query.servers.findMany({
+                where: eq(servers.networkId, networkId),
+              })
+            ).map((server) => server.id);
+
+      if (visibleServerIds.length === 0) {
+        return [];
+      }
+
+      const conditions = [inArray(advancements.serverId, visibleServerIds)];
+      if (player) conditions.push(ilike(advancements.playerName, player));
+      if (contains) {
+        const pattern = `%${contains}%`;
+        conditions.push(or(ilike(advancements.advancement, pattern), ilike(advancements.title, pattern))!);
+      }
+
+      const rows = await fastify.db
+        .select()
+        .from(advancements)
+        .where(and(...conditions))
+        .orderBy(desc(advancements.occurredAt))
+        .limit(limit)
+        .offset((page - 1) * limit);
+
+      return rows.map((row) => ({
+        id: row.id,
+        playerUuid: row.playerUuid,
+        playerName: row.playerName,
+        advancement: row.advancement,
+        title: row.title,
+        frame: row.frame,
+        dimension: row.dimension,
+        x: row.x,
+        y: row.y,
+        z: row.z,
         occurredAt: row.occurredAt.toISOString(),
       }));
     },
