@@ -176,6 +176,13 @@
       "when": 1786882422176,
       "tag": "0024_add_password_2fa_to_users",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786899529305,
+      "tag": "0025_add_account_id_to_users",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db, users, verificationTokens } from "@pantheon/db";
 import { hashPassword } from "@/lib/password";
 import { sendVerificationEmail } from "@/lib/mailgun";
+import { insertUserWithAccountId } from "@/lib/account-id";
 
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -14,6 +15,9 @@ export async function registerUser(formData: FormData) {
   const email = formData.get("email");
   const password = formData.get("password");
 
+  if (typeof name !== "string" || !name.trim()) {
+    throw new Error("A display name is required");
+  }
   if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("A valid email address is required");
   }
@@ -35,14 +39,11 @@ export async function registerUser(formData: FormData) {
 
   const passwordHash = await hashPassword(password);
 
-  const [user] = await db
-    .insert(users)
-    .values({
-      name: typeof name === "string" && name.trim() ? name.trim() : null,
-      email: normalizedEmail,
-      passwordHash,
-    })
-    .returning();
+  const user = await insertUserWithAccountId({
+    name: name.trim(),
+    email: normalizedEmail,
+    passwordHash,
+  });
 
   const token = randomBytes(32).toString("hex");
   await db.transaction(async (tx) => {

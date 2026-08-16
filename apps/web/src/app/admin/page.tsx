@@ -2,10 +2,13 @@ import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { getNetworkMembersWithAccess, getServersForNetwork, getUnclaimedServers } from "@/lib/access";
-import { claimServer, grantServerAccess, revokeServerAccess } from "./actions";
+import { formatAccountId } from "@/lib/account-id-format";
+import { claimServer, addNetworkMember } from "./actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { EditPermissionsModal } from "@/components/edit-permissions-modal";
 
 export default async function AdminAccessPage() {
   const session = await getServerSession(authOptions);
@@ -38,7 +41,7 @@ export default async function AdminAccessPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Manage Access</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Claim servers into your network and grant members access to specific servers.
+          Claim servers into your network, add members by Account ID, and grant them access to specific servers.
         </p>
       </header>
 
@@ -69,92 +72,59 @@ export default async function AdminAccessPage() {
               </Card>
             )}
 
-            {members.length === 0 ? (
-              <Card className="glass-panel">
-                <CardHeader>
-                  <CardTitle>No MODERATOR members yet</CardTitle>
-                  <CardDescription>Members with the MODERATOR role appear here.</CardDescription>
-                </CardHeader>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {members.map((member) => {
-                  const grantedIds = new Set(member.grantedServers.map((server) => server.id));
-                  const availableServers = networkServers.filter((server) => !grantedIds.has(server.id));
+            <Card className="glass-panel">
+              <CardHeader>
+                <CardTitle>Add member</CardTitle>
+                <CardDescription>Add someone to this network by their 8-digit Account ID.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form action={addNetworkMember.bind(null, network.id)} className="flex items-center gap-2">
+                  <Input name="accountId" placeholder="1234-5678" required className="max-w-[160px]" />
+                  <Button type="submit" variant="secondary" size="sm">
+                    Add
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
 
-                  return (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">Members</h3>
+              {members.length === 0 ? (
+                <Card className="glass-panel">
+                  <CardHeader>
+                    <CardTitle>No members yet</CardTitle>
+                    <CardDescription>Members added to this network appear here.</CardDescription>
+                  </CardHeader>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {members.map((member) => (
                     <Card key={member.id} className="glass-panel">
-                      <CardHeader>
-                        <CardTitle>{member.name ?? member.email}</CardTitle>
-                        <CardDescription>{member.email}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                          {member.grantedServers.length === 0 ? (
-                            <span className="text-sm text-muted-foreground">No servers granted</span>
-                          ) : (
-                            member.grantedServers.map((server) => {
-                              const networkServer = networkServers.find((s) => s.id === server.id);
-                              if (!networkServer) return null;
-                              return (
-                                <form
-                                  key={server.id}
-                                  action={revokeServerAccess.bind(
-                                    null,
-                                    network.id,
-                                    member.id,
-                                    networkServer.serverUuid,
-                                  )}
-                                >
-                                  <button
-                                    type="submit"
-                                    aria-label={`Revoke access to ${server.name}`}
-                                    className="group"
-                                  >
-                                    <Badge
-                                      variant="secondary"
-                                      className="cursor-pointer group-hover:bg-destructive/20 group-hover:text-destructive"
-                                    >
-                                      {server.name} &times;
-                                    </Badge>
-                                  </button>
-                                </form>
-                              );
-                            })
-                          )}
+                      <CardContent className="flex items-center justify-between gap-3 p-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{member.name ?? member.email}</span>
+                            <Badge variant="outline">{member.role}</Badge>
+                          </div>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {formatAccountId(member.accountId)}
+                          </p>
                         </div>
-
-                        {availableServers.length > 0 && (
-                          <form
-                            action={grantServerAccess.bind(null, network.id, member.id)}
-                            className="flex items-center gap-2"
-                          >
-                            <select
-                              name="serverUuid"
-                              required
-                              defaultValue=""
-                              className="h-9 rounded-full border border-input bg-background px-3 text-sm text-foreground"
-                            >
-                              <option value="" disabled>
-                                Select a server&hellip;
-                              </option>
-                              {availableServers.map((server) => (
-                                <option key={server.id} value={server.serverUuid}>
-                                  {server.name}
-                                </option>
-                              ))}
-                            </select>
-                            <Button type="submit" variant="secondary" size="sm">
-                              Grant access
-                            </Button>
-                          </form>
+                        {member.role === "MODERATOR" && (
+                          <EditPermissionsModal
+                            networkId={network.id}
+                            userId={member.id}
+                            memberName={member.name ?? member.email}
+                            networkServers={networkServers}
+                            grantedServerUuids={member.grantedServers.map((server) => server.serverUuid)}
+                          />
                         )}
                       </CardContent>
                     </Card>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
         );
       })}

@@ -1,6 +1,6 @@
 {
   "name": "pantheon",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "description": "Pantheon - Multi-tenant admin dashboard for remote Minecraft server analytics, command logs, and moderation data.",
   "workspaces": [

@@ -16,6 +16,7 @@ import commandSpyRoute from "./routes/v1/command-spy";
 import ledgerRoute from "./routes/v1/ledger";
 import mobileAuthRoute from "./routes/v1/mobile-auth";
 import networksRoute from "./routes/v1/networks";
+import usersRoute from "./routes/v1/users";
 import heartbeatRoute from "./routes/v1/heartbeat";
 import telemetryRoute from "./routes/v1/telemetry";
 import telemetryMetricsRoute from "./routes/v1/telemetry-metrics";
@@ -68,6 +69,7 @@ export async function buildApp() {
   await fastify.register(ledgerRoute, { prefix: "/api/v1" });
   await fastify.register(mobileAuthRoute, { prefix: "/api/v1" });
   await fastify.register(networksRoute, { prefix: "/api/v1" });
+  await fastify.register(usersRoute, { prefix: "/api/v1" });
   await fastify.register(heartbeatRoute, { prefix: "/api/v1" });
   await fastify.register(telemetryRoute, { prefix: "/api/v1" });
   await fastify.register(telemetryMetricsRoute, { prefix: "/api/v1" });

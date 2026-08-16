@@ -52,6 +52,15 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
   image: text("image"),
 
+  // A stable, human-shareable identifier for network invitations ("give
+  // someone your Account ID to have them add you") — unlike `id` (a uuid,
+  // not fit for a person to read aloud or type in), an 8-digit numeric
+  // string formats cleanly as e.g. "1234-5678". Generated app-side with a
+  // retry-on-conflict loop (see lib/crypto.ts's generateAccountId in each
+  // app), not a DB default — same convention as generateServerUuid/
+  // generateApiKey/generateLinkCode elsewhere in this codebase.
+  accountId: varchar("account_id", { length: 8 }).notNull(),
+
   // Credentials (email/password) sign-in. Nullable — OAuth-only users (Discord,
   // Google) never get one, so its presence is what distinguishes "this account
   // can sign in with a password" from "OAuth-only" rather than a separate flag.
@@ -72,6 +81,7 @@ export const users = pgTable("users", {
     .$onUpdate(() => new Date()),
 }, (table) => ({
   emailUniqueIdx: uniqueIndex("users_email_unique_idx").on(table.email),
+  accountIdUniqueIdx: uniqueIndex("users_account_id_unique_idx").on(table.accountId),
 }));
 
 export const accounts = pgTable(

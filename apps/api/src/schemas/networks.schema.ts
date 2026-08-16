@@ -117,6 +117,34 @@ export const networkPlaytimeLeaderboardEntrySchema = z.object({
 
 export const networkPlaytimeLeaderboardResponseSchema = z.array(networkPlaytimeLeaderboardEntrySchema);
 
+export const addNetworkMemberBodySchema = z.object({
+  accountId: z.string().length(8),
+});
+
+export const networkMemberSchema = z.object({
+  userId: z.string().uuid(),
+  name: z.string().nullable(),
+  accountId: z.string().length(8),
+  role: z.enum(networkRoleEnum.enumValues),
+  // This member's server_access_grants scoped to servers in *this* network
+  // — grants are stored per-user with no network_id column of their own
+  // (server_access_grants.server_uuid -> servers.network_id is how the
+  // scoping happens), so every read/write here filters through this
+  // network's own server list.
+  serverUuids: z.array(z.string().uuid()),
+});
+
+export const networkMembersListResponseSchema = z.array(networkMemberSchema);
+
+export const networkMemberParamsSchema = z.object({
+  networkId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+
+export const updateMemberGrantsBodySchema = z.object({
+  serverUuids: z.array(z.string().uuid()),
+});
+
 // command_spy_logs stores server_id (the internal servers.id FK), not
 // serverUuid — this is joined in at query time, not a raw column. Not
 // nullable: server_id is NOT NULL with ON DELETE CASCADE (see

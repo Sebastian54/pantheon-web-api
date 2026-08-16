@@ -8,13 +8,20 @@ export const mobileDiscordAuthBodySchema = z.object({
 
 export type MobileDiscordAuthBody = z.infer<typeof mobileDiscordAuthBodySchema>;
 
+// Shared shape for every route that returns a user object — Discord,
+// Google, login, register, and verify-2fa all reuse this rather than each
+// declaring their own inline copy, so a field like accountId only needs
+// adding once.
+export const mobileAuthUserSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  email: z.string(),
+  accountId: z.string().length(8),
+});
+
 export const mobileDiscordAuthResponseSchema = z.object({
   token: z.string(),
-  user: z.object({
-    id: z.string().uuid(),
-    name: z.string().nullable(),
-    email: z.string(),
-  }),
+  user: mobileAuthUserSchema,
 });
 
 export const mobileDiscordAuthErrorSchema = z.object({
@@ -28,12 +35,6 @@ export const mobileLoginBodySchema = z.object({
 });
 
 export type MobileLoginBody = z.infer<typeof mobileLoginBodySchema>;
-
-const mobileAuthUserSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().nullable(),
-  email: z.string(),
-});
 
 // A successful /login either finishes the sign-in (token + user, same shape
 // as /auth/mobile/discord) or, if the account has 2FA enabled, hands back a
@@ -58,8 +59,14 @@ export const mobileVerify2faResponseSchema = z.object({
 
 export const mobileAuthErrorSchema = mobileDiscordAuthErrorSchema;
 
+// name is now required going forward — but users.name stays nullable at the
+// DB level (Discord/Google always set it from the provider's profile, so
+// only pre-existing email/password accounts from before this change can
+// still have a null name; apps/web's /complete-profile guard, and its
+// mobile equivalent calling PATCH /users/me, handle that gap client-side
+// rather than this being backfilled/enforced in the database).
 export const mobileRegisterBodySchema = z.object({
-  name: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1),
   email: z.string().email(),
   password: z.string().min(8),
 });

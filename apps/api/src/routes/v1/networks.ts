@@ -14,6 +14,7 @@ import {
   antiDupeEvents,
   griefLoggerEvents,
   advancements,
+  users,
 } from "@pantheon/db";
 import { normalizeLinkCode } from "../../lib/crypto";
 import {
@@ -44,6 +45,11 @@ import {
   networkTardisParamsSchema,
   noContentResponseSchema,
   renameServerBodySchema,
+  addNetworkMemberBodySchema,
+  networkMemberSchema,
+  networkMembersListResponseSchema,
+  networkMemberParamsSchema,
+  updateMemberGrantsBodySchema,
 } from "../../schemas/networks.schema";
 
 const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
@@ -972,6 +978,176 @@ const networksRoute: FastifyPluginAsyncZod = async (fastify) => {
         installedMods: renamed.installedMods,
         lastSeenAt: renamed.lastSeenAt ? renamed.lastSeenAt.toISOString() : null,
         createdAt: renamed.createdAt.toISOString(),
+      });
+    },
+  );
+
+  fastify.get(
+    "/networks/:networkId/members",
+    {
+      preHandler: fastify.requireNetworkRole("MODERATOR"),
+      schema: {
+        params: networkIdParamsSchema,
+        response: { 200: networkMembersListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { networkId } = request.params;
+
+      const memberships = await fastify.db.query.networkMembers.findMany({
+        where: eq(networkMembers.networkId, networkId),
+        with: { user: { columns: { id: true, name: true, accountId: true } } },
+      });
+      if (memberships.length === 0) {
+        return [];
+      }
+
+      const networkServers = await fastify.db.query.servers.findMany({
+        where: eq(servers.networkId, networkId),
+        columns: { serverUuid: true },
+      });
+      const networkServerUuids = networkServers.map((server) => server.serverUuid);
+
+      // Grants are stored per-user with no network_id of their own — scoped
+      // here to this network's own servers so a member's grants on some
+      // *other* network's servers never leak into this list.
+      const grants = networkServerUuids.length
+        ? await fastify.db.query.serverAccessGrants.findMany({
+            where: and(
+              inArray(
+                serverAccessGrants.userId,
+                memberships.map((membership) => membership.userId),
+              ),
+              inArray(serverAccessGrants.serverUuid, networkServerUuids),
+            ),
+          })
+        : [];
+
+      const grantsByUser = new Map<string, string[]>();
+      for (const grant of grants) {
+        const existing = grantsByUser.get(grant.userId);
+        if (existing) {
+          existing.push(grant.serverUuid);
+        } else {
+          grantsByUser.set(grant.userId, [grant.serverUuid]);
+        }
+      }
+
+      return memberships.map((membership) => ({
+        userId: membership.userId,
+        name: membership.user.name,
+        accountId: membership.user.accountId,
+        role: membership.role,
+        serverUuids: grantsByUser.get(membership.userId) ?? [],
+      }));
+    },
+  );
+
+  fastify.post(
+    "/networks/:networkId/members",
+    {
+      preHandler: fastify.requireNetworkRole("ADMIN"),
+      schema: {
+        params: networkIdParamsSchema,
+        body: addNetworkMemberBodySchema,
+        response: { 201: networkMemberSchema, 404: apiErrorSchema, 409: apiErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const { networkId } = request.params;
+      const { accountId } = request.body;
+
+      const targetUser = await fastify.db.query.users.findFirst({ where: eq(users.accountId, accountId) });
+      if (!targetUser) {
+        return reply.code(404).send({ error: "Not Found", message: "No account with that Account ID" });
+      }
+
+      const existingMembership = await fastify.db.query.networkMembers.findFirst({
+        where: and(eq(networkMembers.userId, targetUser.id), eq(networkMembers.networkId, networkId)),
+      });
+      if (existingMembership) {
+        return reply
+          .code(409)
+          .send({ error: "Conflict", message: "That user is already a member of this network" });
+      }
+
+      // New members always land as MODERATOR (networkMembers' own schema
+      // default) — inviting straight in as ADMIN/OWNER isn't something this
+      // route supports; that's a role-change operation, not an add.
+      await fastify.db.insert(networkMembers).values({ userId: targetUser.id, networkId, role: "MODERATOR" });
+
+      return reply.code(201).send({
+        userId: targetUser.id,
+        name: targetUser.name,
+        accountId: targetUser.accountId,
+        role: "MODERATOR" as const,
+        serverUuids: [],
+      });
+    },
+  );
+
+  fastify.put(
+    "/networks/:networkId/members/:userId/grants",
+    {
+      preHandler: fastify.requireNetworkRole("ADMIN"),
+      schema: {
+        params: networkMemberParamsSchema,
+        body: updateMemberGrantsBodySchema,
+        response: { 200: networkMemberSchema, 400: apiErrorSchema, 404: apiErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      const { networkId, userId } = request.params;
+      const { serverUuids } = request.body;
+
+      const membership = await fastify.db.query.networkMembers.findFirst({
+        where: and(eq(networkMembers.userId, userId), eq(networkMembers.networkId, networkId)),
+        with: { user: { columns: { id: true, name: true, accountId: true } } },
+      });
+      if (!membership) {
+        return reply.code(404).send({ error: "Not Found", message: "That user is not a member of this network" });
+      }
+
+      const networkServers = await fastify.db.query.servers.findMany({
+        where: eq(servers.networkId, networkId),
+        columns: { serverUuid: true },
+      });
+      const networkServerUuids = networkServers.map((server) => server.serverUuid);
+      const networkServerUuidSet = new Set(networkServerUuids);
+
+      const invalidUuid = serverUuids.find((serverUuid) => !networkServerUuidSet.has(serverUuid));
+      if (invalidUuid) {
+        return reply
+          .code(400)
+          .send({ error: "Bad Request", message: `Server ${invalidUuid} is not in this network` });
+      }
+
+      // Replace, not merge — deletes this member's grants across this
+      // network's servers, then inserts exactly the requested set. An
+      // empty serverUuids array is a valid way to revoke all server access
+      // without removing them from the network entirely.
+      await fastify.db.transaction(async (tx) => {
+        if (networkServerUuids.length > 0) {
+          await tx
+            .delete(serverAccessGrants)
+            .where(
+              and(eq(serverAccessGrants.userId, userId), inArray(serverAccessGrants.serverUuid, networkServerUuids)),
+            );
+        }
+        if (serverUuids.length > 0) {
+          await tx
+            .insert(serverAccessGrants)
+            .values(serverUuids.map((serverUuid) => ({ userId, serverUuid })))
+            .onConflictDoNothing();
+        }
+      });
+
+      return reply.code(200).send({
+        userId: membership.userId,
+        name: membership.user.name,
+        accountId: membership.user.accountId,
+        role: membership.role,
+        serverUuids,
       });
     },
   );

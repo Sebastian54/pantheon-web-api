@@ -2,10 +2,11 @@ import { randomBytes } from "node:crypto";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { encode, decode } from "next-auth/jwt";
 import { and, eq } from "drizzle-orm";
-import { accounts, users, verificationTokens } from "@pantheon/db";
+import { accounts, users, verificationTokens, db } from "@pantheon/db";
 import { env } from "../../config/env";
 import { exchangeDiscordCode, fetchDiscordUser } from "../../lib/discord";
 import { verifyGoogleIdToken } from "../../lib/google";
+import { generateAccountId } from "../../lib/crypto";
 import { hashPassword, verifyPassword } from "../../lib/password";
 import { verifyTotpCode } from "../../lib/totp";
 import { sendVerificationEmail } from "../../lib/mailgun";
@@ -39,13 +40,47 @@ const PENDING_2FA_TOKEN_MAX_AGE_SECONDS = 5 * 60;
 // the same apps/web GET /verify-email route handler.
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-async function mintSessionToken(user: { id: string; name: string | null; email: string }) {
+async function mintSessionToken(user: { id: string; name: string | null; email: string; accountId: string }) {
   const token = await encode({
     token: { sub: user.id, name: user.name },
     secret: env.NEXTAUTH_SECRET,
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
-  return { token, user: { id: user.id, name: user.name, email: user.email } };
+  return {
+    token,
+    user: { id: user.id, name: user.name, email: user.email, accountId: user.accountId },
+  };
+}
+
+const MAX_ACCOUNT_ID_ATTEMPTS = 5;
+
+function isAccountIdConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: string }).code === "23505" &&
+    (error as { constraint?: string }).constraint === "users_account_id_unique_idx"
+  );
+}
+
+/**
+ * Every user-creation path needs a unique accountId, generated app-side
+ * (see lib/crypto.ts's generateAccountId) — this just retries with a fresh
+ * candidate on the rare collision, rather than failing the whole signup.
+ */
+async function insertUserWithAccountId(values: Omit<typeof users.$inferInsert, "accountId">) {
+  for (let attempt = 0; attempt < MAX_ACCOUNT_ID_ATTEMPTS; attempt++) {
+    try {
+      const [user] = await db
+        .insert(users)
+        .values({ ...values, accountId: generateAccountId() })
+        .returning();
+      return user;
+    } catch (error) {
+      if (attempt === MAX_ACCOUNT_ID_ATTEMPTS - 1 || !isAccountIdConflict(error)) throw error;
+    }
+  }
+  throw new Error("unreachable");
 }
 
 /**
@@ -129,11 +164,7 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
       // 3. Genuinely new identity — create both rows. Matches the web
       // flow's default: new users land with zero network memberships.
       if (!user) {
-        const [newUser] = await fastify.db
-          .insert(users)
-          .values({ name: discordUser.username, email: discordUser.email })
-          .returning();
-        user = newUser;
+        user = await insertUserWithAccountId({ name: discordUser.username, email: discordUser.email });
 
         await fastify.db.insert(accounts).values({
           userId: user.id,
@@ -223,11 +254,7 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
       // 3. Genuinely new identity — create both rows. Matches the web
       // flow's default: new users land with zero network memberships.
       if (!user) {
-        const [newUser] = await fastify.db
-          .insert(users)
-          .values({ name: googleUser.name ?? null, email: googleUser.email })
-          .returning();
-        user = newUser;
+        user = await insertUserWithAccountId({ name: googleUser.name ?? null, email: googleUser.email });
 
         await fastify.db.insert(accounts).values({
           userId: user.id,
@@ -351,10 +378,7 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
       }
 
       const passwordHash = await hashPassword(password);
-      const [user] = await fastify.db
-        .insert(users)
-        .values({ name: name ?? null, email, passwordHash })
-        .returning();
+      const user = await insertUserWithAccountId({ name, email, passwordHash });
 
       const token = randomBytes(32).toString("hex");
       await fastify.db.transaction(async (tx) => {
@@ -376,7 +400,9 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
         fastify.log.error({ error }, "Failed to send verification email");
       }
 
-      return reply.code(201).send({ user: { id: user.id, name: user.name, email: user.email } });
+      return reply
+        .code(201)
+        .send({ user: { id: user.id, name: user.name, email: user.email, accountId: user.accountId } });
     },
   );
 };

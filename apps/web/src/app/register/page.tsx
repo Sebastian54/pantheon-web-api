@@ -22,7 +22,7 @@ export default async function RegisterPage() {
         </CardHeader>
         <CardContent>
           <form action={registerUser} className="space-y-3">
-            <Input name="name" placeholder="Name" autoComplete="name" />
+            <Input name="name" placeholder="Display Name" autoComplete="name" required />
             <Input name="email" type="email" placeholder="Email" autoComplete="email" required />
             <Input
               name="password"

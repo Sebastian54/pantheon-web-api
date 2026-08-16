@@ -32,6 +32,18 @@ export function generateServerUuid(): string {
 }
 
 /**
+ * 8-digit numeric string for a user's Account ID — a short, human-shareable
+ * identifier for network invitations (unlike `users.id`, a uuid nobody
+ * could reasonably read aloud or type in). Stored with no separator;
+ * clients format it for display (e.g. "1234-5678"). Callers must retry on a
+ * unique-constraint conflict — this only generates a candidate, it doesn't
+ * check uniqueness itself.
+ */
+export function generateAccountId(): string {
+  return String(randomInt(0, 100_000_000)).padStart(8, "0");
+}
+
+/**
  * Deterministic SHA-256 — safe here because the input is a 256-bit random
  * token (crypto.randomBytes), not a low-entropy password: brute-forcing or
  * rainbow-tabling a value with that much entropy is infeasible regardless of
