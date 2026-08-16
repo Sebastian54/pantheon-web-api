@@ -169,6 +169,13 @@
       "when": 1786729367310,
       "tag": "0023_smart_lightspeed",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786882422176,
+      "tag": "0024_add_password_2fa_to_users",
+      "breakpoints": true
     }
   ]
 }

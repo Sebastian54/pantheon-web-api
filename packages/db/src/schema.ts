@@ -52,6 +52,19 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
   image: text("image"),
 
+  // Credentials (email/password) sign-in. Nullable — OAuth-only users (Discord,
+  // Google) never get one, so its presence is what distinguishes "this account
+  // can sign in with a password" from "OAuth-only" rather than a separate flag.
+  passwordHash: text("password_hash"),
+
+  // TOTP two-factor auth. twoFactorSecret is set the moment the user starts
+  // setup (scans the QR code) but twoFactorEnabled stays false until they
+  // confirm possession by submitting one valid code back — this prevents a
+  // half-finished setup (secret generated, never confirmed) from silently
+  // locking the account out of its own 2FA-gated login path.
+  twoFactorSecret: text("two_factor_secret"),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

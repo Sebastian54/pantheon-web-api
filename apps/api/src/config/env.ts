@@ -31,6 +31,15 @@ const envSchema = z.object({
   // auth route checks for these itself and returns a clear 503 if unset.
   DISCORD_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
   DISCORD_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+
+  // GitHub Student Pack Mailgun credits — used by /auth/mobile/register to
+  // send its own verification email directly (this API never calls into
+  // apps/web, so it can't reuse apps/web's Mailgun send). Optional for the
+  // same crash-loop-avoidance reason as the Discord vars above: a failed
+  // send is logged and swallowed by the route, not fatal to boot.
+  MAILGUN_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  MAILGUN_DOMAIN: z.preprocess(emptyToUndefined, z.string().optional()),
+  MAILGUN_API_BASE: z.preprocess(emptyToUndefined, z.string().url().optional()),
 });
 
 export const env = envSchema.parse(process.env);
