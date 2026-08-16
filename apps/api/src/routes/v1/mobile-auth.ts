@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { accounts, users, verificationTokens } from "@pantheon/db";
 import { env } from "../../config/env";
 import { exchangeDiscordCode, fetchDiscordUser } from "../../lib/discord";
+import { verifyGoogleIdToken } from "../../lib/google";
 import { hashPassword, verifyPassword } from "../../lib/password";
 import { verifyTotpCode } from "../../lib/totp";
 import { sendVerificationEmail } from "../../lib/mailgun";
@@ -19,6 +20,8 @@ import {
   mobileAuthErrorSchema,
   mobileRegisterBodySchema,
   mobileRegisterResponseSchema,
+  mobileGoogleAuthBodySchema,
+  mobileGoogleAuthResponseSchema,
 } from "../../schemas/mobile-auth.schema";
 
 // Matches apps/web's NextAuth default session maxAge (30 days) so mobile and
@@ -137,6 +140,100 @@ const mobileAuthRoute: FastifyPluginAsyncZod = async (fastify) => {
           type: "oauth",
           provider: "discord",
           providerAccountId: discordUser.id,
+        });
+      }
+
+      return reply.code(200).send(await mintSessionToken(user));
+    },
+  );
+
+  /**
+   * Native-app counterpart to apps/web's NextAuth GoogleProvider — but
+   * unlike Discord/the web OAuth flows, the GoogleSignIn-iOS SDK does the
+   * whole OAuth dance on-device and hands the app an already-signed Google
+   * ID token, so there's no code exchange here at all: just server-side
+   * verification of a token the client already has (signature + audience,
+   * via google-auth-library). Deliberately does NOT gate on
+   * user.emailVerified or user.twoFactorEnabled — same reasoning as
+   * Discord: Google vouching for the identity makes Pantheon's own
+   * verification/2FA gates redundant for an OAuth-established identity.
+   */
+  fastify.post(
+    "/auth/mobile/google",
+    {
+      schema: {
+        body: mobileGoogleAuthBodySchema,
+        response: {
+          200: mobileGoogleAuthResponseSchema,
+          400: mobileAuthErrorSchema,
+          401: mobileAuthErrorSchema,
+          503: mobileAuthErrorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!env.GOOGLE_IOS_CLIENT_ID) {
+        return reply
+          .code(503)
+          .send({ error: "Service Unavailable", message: "Google mobile auth is not configured" });
+      }
+
+      const { idToken } = request.body;
+
+      let googleUser;
+      try {
+        googleUser = await verifyGoogleIdToken(idToken, env.GOOGLE_IOS_CLIENT_ID);
+      } catch (error) {
+        fastify.log.warn({ error }, "Google ID token verification failed");
+        return reply.code(401).send({ error: "Unauthorized" });
+      }
+
+      if (!googleUser.email) {
+        return reply.code(400).send({
+          error: "Bad Request",
+          message: "Google ID token did not include an email claim",
+        });
+      }
+
+      // 1. Already linked to a Pantheon account?
+      const existingAccount = await fastify.db.query.accounts.findFirst({
+        where: and(eq(accounts.provider, "google"), eq(accounts.providerAccountId, googleUser.sub)),
+      });
+
+      let user = existingAccount
+        ? await fastify.db.query.users.findFirst({ where: eq(users.id, existingAccount.userId) })
+        : undefined;
+
+      // 2. First time this Google account has signed in, but the email
+      // matches an existing user (e.g. they signed up via the web dashboard
+      // first) — link, but only if Google has confirmed the user owns that
+      // email. An unverified email is not sufficient proof to link accounts.
+      if (!user && googleUser.emailVerified) {
+        user = await fastify.db.query.users.findFirst({ where: eq(users.email, googleUser.email) });
+        if (user) {
+          await fastify.db.insert(accounts).values({
+            userId: user.id,
+            type: "oauth",
+            provider: "google",
+            providerAccountId: googleUser.sub,
+          });
+        }
+      }
+
+      // 3. Genuinely new identity — create both rows. Matches the web
+      // flow's default: new users land with zero network memberships.
+      if (!user) {
+        const [newUser] = await fastify.db
+          .insert(users)
+          .values({ name: googleUser.name ?? null, email: googleUser.email })
+          .returning();
+        user = newUser;
+
+        await fastify.db.insert(accounts).values({
+          userId: user.id,
+          type: "oauth",
+          provider: "google",
+          providerAccountId: googleUser.sub,
         });
       }
 

@@ -40,6 +40,15 @@ const envSchema = z.object({
   MAILGUN_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   MAILGUN_DOMAIN: z.preprocess(emptyToUndefined, z.string().optional()),
   MAILGUN_API_BASE: z.preprocess(emptyToUndefined, z.string().url().optional()),
+
+  // The iOS app's own Google OAuth client ID (distinct from apps/web's
+  // NextAuth GoogleProvider client id, which is a "Web application" client)
+  // — this is the `audience` /auth/mobile/google checks a verified ID
+  // token's `aud` claim against, matching whatever GIDClientID is
+  // configured in the iOS app's Info.plist. Optional for the same
+  // crash-loop-avoidance reason as the other provider vars — the route
+  // returns a 503 until this is provisioned.
+  GOOGLE_IOS_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
 });
 
 export const env = envSchema.parse(process.env);

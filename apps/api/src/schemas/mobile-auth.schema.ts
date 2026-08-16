@@ -72,3 +72,21 @@ export type MobileRegisterBody = z.infer<typeof mobileRegisterBodySchema>;
 export const mobileRegisterResponseSchema = z.object({
   user: mobileAuthUserSchema,
 });
+
+// camelCase, matching login/register/verify-2fa's convention — unlike
+// Discord's snake_case body, which exists specifically to match apps/web's
+// Server Action form fields, not applicable here since there's no
+// code/verifier/redirect_uri in the "verify an on-device-signed ID token"
+// flow at all.
+export const mobileGoogleAuthBodySchema = z.object({
+  idToken: z.string().min(1),
+});
+
+export type MobileGoogleAuthBody = z.infer<typeof mobileGoogleAuthBodySchema>;
+
+// Reuses mobileDiscordAuthResponseSchema's exact { token, user } shape —
+// like Discord, this route never has a 2FA branch (an OAuth provider
+// vouching for the identity makes that gate redundant for this path), so
+// the plain object schema is a more accurate contract than reusing the
+// /login union for a variant this route can never actually produce.
+export const mobileGoogleAuthResponseSchema = mobileDiscordAuthResponseSchema;
